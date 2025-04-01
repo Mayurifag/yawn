@@ -48,7 +48,7 @@ type Config struct {
 	GeminiModel           string   `toml:"gemini_model"`
 	MaxTokens             int      `toml:"max_tokens"`
 	RequestTimeoutSeconds int      `toml:"request_timeout_seconds"`
-	Prompt                string   `toml:"prompt"`
+	Prompt                string   `toml:"prompt,multiline"`
 	IgnorePatterns        []string `toml:"ignore_patterns"`
 	AskStage              bool     `toml:"ask_stage"`
 	AutoPush              bool     `toml:"auto_push"`
