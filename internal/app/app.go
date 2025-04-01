@@ -171,45 +171,40 @@ func (a *App) Run(ctx context.Context) error {
 	fmt.Println("---")
 
 	// 6. Commit
-	if ui.AskYesNo("Proceed with this commit message?", true) { // Default Yes
+	if a.Config.Verbose {
+		ui.PrintInfo("Committing changes...")
+	}
+	err = a.GitClient.Commit(commitMessage)
+	if err != nil {
+		ui.PrintError(fmt.Sprintf("Failed to commit changes: %v", err))
+		return err
+	}
+	ui.PrintSuccess("Changes committed successfully.")
+
+	// 7. Push
+	shouldPush := a.Config.AutoPush
+	if !shouldPush {
+		if ui.AskYesNo(fmt.Sprintf("Push changes now? (using: %s)", a.Config.PushCommand), false) { // Default No
+			shouldPush = true
+		}
+	}
+
+	if shouldPush {
 		if a.Config.Verbose {
-			ui.PrintInfo("Committing changes...")
+			ui.PrintInfo(fmt.Sprintf("Pushing changes using command: %s", a.Config.PushCommand))
 		}
-		err = a.GitClient.Commit(commitMessage)
+		spinner := ui.StartSpinner("Pushing changes")
+		err = a.GitClient.Push(a.Config.PushCommand)
+		ui.StopSpinner(spinner)
+		ui.ClearLine()
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Failed to commit changes: %v", err))
-			return err
+			ui.PrintError(fmt.Sprintf("Failed to push changes: %v", err))
+			// Don't return error here, commit succeeded. Push failure is less critical.
+		} else {
+			ui.PrintSuccess("Changes pushed successfully.")
 		}
-		ui.PrintSuccess("Changes committed successfully.")
-
-		// 7. Push
-		shouldPush := a.Config.AutoPush
-		if !shouldPush {
-			if ui.AskYesNo(fmt.Sprintf("Push changes now? (using: %s)", a.Config.PushCommand), false) { // Default No
-				shouldPush = true
-			}
-		}
-
-		if shouldPush {
-			if a.Config.Verbose {
-				ui.PrintInfo(fmt.Sprintf("Pushing changes using command: %s", a.Config.PushCommand))
-			}
-			spinner := ui.StartSpinner("Pushing changes")
-			err = a.GitClient.Push(a.Config.PushCommand)
-			ui.StopSpinner(spinner)
-			ui.ClearLine()
-			if err != nil {
-				ui.PrintError(fmt.Sprintf("Failed to push changes: %v", err))
-				// Don't return error here, commit succeeded. Push failure is less critical.
-			} else {
-				ui.PrintSuccess("Changes pushed successfully.")
-			}
-		} else if a.Config.Verbose {
-			ui.PrintInfo("Skipping push based on config or user choice.")
-		}
-
-	} else {
-		ui.PrintInfo("Commit aborted by user.")
+	} else if a.Config.Verbose {
+		ui.PrintInfo("Skipping push based on config or user choice.")
 	}
 
 	return nil
