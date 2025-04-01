@@ -25,16 +25,35 @@ const (
 	DefaultPushCommand = "git push origin HEAD"
 	DefaultVerbose     = false
 	DefaultPrompt      = `Analyze the following Git diff and generate a concise, conventional commit message.
-The message should follow the standard format: <type>(<scope>): <subject>
 
-<body>
+The commit message should follow this structure:
+1. Subject line (50 chars max): <subject>
+   - Use imperative mood ("Add" not "added" or "adds") beginning with a capital letter
+   - No period at the end
+   - Be specific and descriptive
+   - In rare cases, you might use emoji on the end of the subject line, if it is appropriate
 
-<footer>.
-Determine the appropriate type (feat, fix, chore, refactor, style, test, docs, build, ci, perf).
-The scope is optional. The subject should be imperative, present tense, and start with a lowercase letter.
-The body should explain the 'what' and 'why' of the change.
+2. Body (72 chars per line):
+   - Start with a blank line after subject
+   - Explain WHAT changed and WHY
+   - Use bullet points for multiple changes
+   - Be specific about the motivation behind changes
 
-Diff:
+3. Footer (if needed):
+   - Reference issues: "Fixes #123" or "Refs #456"
+   - Note breaking changes: "BREAKING CHANGE: description"
+
+Example:
+Add user authentication with Google OAuth2
+
+- Implement OAuth2 flow for Google sign-in
+- Add user session management
+- Store user profiles in database
+
+Fixes #123
+BREAKING CHANGE: Users need to re-login after update
+
+Diff to analyze:
 '''diff
 {{Diff}}
 '''

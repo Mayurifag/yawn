@@ -29,7 +29,7 @@ go.work.sum
 *.bak
 *.tmp
 *.log
-yawn
+/yawn
 dist/
 
 # OS generated files
