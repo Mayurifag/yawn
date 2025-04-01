@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test-build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+        cache-dependency-path: go.sum
+
+    - name: Install golangci-lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest
+
+    - name: Tidy modules
+      run: go mod tidy
+
+    - name: Vet
+      run: go vet ./...
+
+    - name: Lint
+      run: make lint
+
+    - name: Test with Race Detector and Coverage
+      run: make test
+
+    - name: Build
+      run: make build
+
+    # Optional: Upload coverage to Codecov
+    # - name: Upload coverage reports to Codecov
+    #   uses: codecov/codecov-action@e28ff129e5465c2c0d99f5d00645ac40c76f6044 # v4.5.0
+    #   with:
+    #     token: ${{ secrets.CODECOV_TOKEN }} # Store token in GitHub secrets
+    #     files: ./coverage.out
+    #     fail_ci_if_error: true

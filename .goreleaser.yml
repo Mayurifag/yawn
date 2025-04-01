@@ -1,0 +1,110 @@
+# .goreleaser.yml
+# Visit https://goreleaser.com for documentation on how to customize this
+# behavior.
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+    # you may remove this if you don't need go generate
+    # - go generate ./...
+builds:
+  - # Build configuration for the main yawn binary
+    id: yawn
+    # Path to main.go for the application.
+    main: ./cmd/yawn/
+    # Binary name.
+    binary: yawn
+    # Environment variables for the build.
+    env:
+      - CGO_ENABLED=0 # Build static binaries where possible
+    # GOOS and GOARCH matrix.
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # Optional: Specify specific GOARM for ARM builds if needed (e.g., 6, 7)
+    # goarm:
+    #   - '6'
+    # Optional: Set ldflags for version injection, stripping symbols, etc.
+    # The -s -w flags reduce binary size. The -X flag injects the version.
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - # Archive configuration
+    id: yawn-archives
+    # Builds to include in the archive. References the build ID 'yawn'.
+    builds:
+      - yawn
+    # Archive format. 'tar.gz' for Linux/macOS, 'zip' for Windows.
+    format: binary # Use 'binary' to just attach the executable directly
+    # Optional: Name template for the archive files.
+    # name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    # Optional: Add extra files like README, LICENSE to the archive.
+    # files:
+    #   - README.md
+    #   - LICENSE
+
+# We are skipping checksum generation as requested
+# checksum:
+#   name_template: 'checksums.txt'
+
+# We are skipping snapshot generation as requested
+# snapshot:
+#   name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge branch
+
+release:
+  # Repository configuration (usually auto-detected).
+  # github:
+  #   owner: Mayurifag
+  #   name: yawn
+
+  # Draft release? Set to true to create drafts instead of publishing directly.
+  draft: false
+  # Prerelease? Auto-detect based on tag format (e.g., v1.0.0-rc1).
+  prerelease: auto
+
+  # Optional: Name template for the release title.
+  # name_template: "{{.Tag}} release"
+
+  # Optional: Add extra files to the release assets.
+  # extra_files:
+  #   - glob: ./path/to/some/asset.deb
+  #   - glob: ./other/asset.*
+
+# We are skipping Docker image generation for now
+# dockers:
+#   - # Docker image configuration
+#     goos: linux
+#     goarch: amd64
+#     # GOARM: '' # Omit GOARM for amd64
+#     # Path to the Dockerfile.
+#     dockerfile: Dockerfile
+#     # IDs of the builds to use.
+#     ids:
+#       - yawn
+#     # Image templates.
+#     image_templates:
+#       - "ghcr.io/mayurifag/yawn:latest"
+#       - "ghcr.io/mayurifag/yawn:{{ .Tag }}"
+#       - "ghcr.io/mayurifag/yawn:v{{ .Major }}"
+#     # Optional: Build arguments for the Dockerfile.
+#     # build_flag_templates:
+#     #   - "--label=org.opencontainers.image.created={{.Date}}"
+#     #   - "--label=org.opencontainers.image.title={{.ProjectName}}"
+#     #   - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+#     #   - "--label=org.opencontainers.image.version={{.Version}}"

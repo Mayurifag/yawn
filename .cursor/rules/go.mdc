@@ -1,0 +1,55 @@
+---
+description: 
+globs: *.go
+alwaysApply: false
+---
+# Cursor Rules for Go Development (yawn-commit)
+
+## General Principles
+- Follow standard Go conventions (Effective Go, Go Code Review Comments).
+- Keep functions small and focused.
+- Prioritize clarity and readability over excessive cleverness.
+- Handle errors explicitly; avoid panicking unless absolutely necessary.
+- Write unit tests for non-trivial logic.
+- Use meaningful variable and function names.
+
+## Formatting & Style
+- Run `go fmt` before committing.
+- Use `golangci-lint` for linting (configuration will be provided).
+- Keep lines reasonably short (aim for < 120 characters).
+- Group related imports; separate standard library, third-party, and internal packages.
+
+## Error Handling
+- Use `errors.Is` and `errors.As` for checking specific error types or wrapped errors.
+- Add context to errors using `fmt.Errorf("context: %w", err)` when wrapping.
+- Return errors rather than logging and returning nil unless it's a background task.
+
+## Concurrency
+- Use channels for communication between goroutines.
+- Be mindful of race conditions; use `go run -race` or `go test -race` during development.
+- Use `context.Context` for cancellation and deadlines, especially for I/O or RPC calls.
+
+## Dependencies
+- Use Go Modules for dependency management.
+- Keep dependencies minimal and justifiable.
+
+## API Design (Internal)
+- Design interfaces based on consumer needs.
+- Return structs or concrete types, accept interfaces.
+
+## Testing
+- Use the standard `testing` package.
+- Aim for good test coverage, especially for core logic (config, git, ai).
+- Use table-driven tests where appropriate.
+- Mock external dependencies (like Git commands or AI API calls) for unit tests.
+
+## Security
+- Be extremely careful when handling secrets like API keys.
+- Validate and sanitize any user input or external data.
+- Be cautious when executing external commands (`os/exec`); avoid command injection vulnerabilities.
+
+## Specific to yawn-commit
+- Ensure Git commands correctly handle edge cases (empty repo, no staged changes, etc.).
+- Handle API rate limits and token limits gracefully.
+- Provide clear user feedback during operations (stage, commit, push).
+- Make configuration loading robust and predictable (user -> local -> env -> flags).
