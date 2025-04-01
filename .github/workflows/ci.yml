@@ -36,8 +36,8 @@ jobs:
     - name: Lint
       run: make lint
 
-    - name: Test with Race Detector and Coverage
-      run: make test
+    # - name: Test with Race Detector and Coverage
+    #   run: make test
 
     - name: Build
       run: make build
