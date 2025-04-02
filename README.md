@@ -80,4 +80,6 @@ This project is released into the public domain under The Unlicense. See the [LI
 * [x] Wait and add more free AI API providers, who dont ask for credit card
   * I don't know anyone for now, but will add more here probably
 * [ ] Replace EstimateTokenCount implementation in internal/gemini/client.go with calls to c.client.CountTokens(ctx, modelName, genai.Text(text))
+* [ ] Remove verbose mode
+
 Actually, I do not plan much features. Project considered as done.

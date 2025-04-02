@@ -259,6 +259,9 @@ func (c *ExecGitClient) GetCurrentBranch() (string, error) {
 
 // GetRemoteURL returns the URL of the specified remote.
 func (c *ExecGitClient) GetRemoteURL(remote string) (string, error) {
+	if remote == "" {
+		remote = "origin" // Default to origin when no remote is specified
+	}
 	output, err := c.runGitCommand("remote", "get-url", remote)
 	if err != nil {
 		return "", fmt.Errorf("failed to get remote URL: %w", err)

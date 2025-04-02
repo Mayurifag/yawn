@@ -115,3 +115,8 @@ func ClearLine() {
 		fmt.Print("\033[1A\r\033[K") // Move up one line, carriage return, clear line
 	}
 }
+
+// PrintRepoLink prints a repository link with the URL part in blue.
+func PrintRepoLink(message string, url string) {
+	fmt.Printf("%s %s\n", message, color.BlueString(url))
+}
