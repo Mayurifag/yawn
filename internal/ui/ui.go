@@ -37,15 +37,16 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 	input, _ := reader.ReadString('\n')
 	input = strings.ToLower(strings.TrimSpace(input))
 
+	result := defaultYes
+	if input != "" {
+		result = input == "y" || input == "yes"
+	}
+
 	if term.IsTerminal(int(os.Stdout.Fd())) {
-		ClearLine()
+		fmt.Print("\033[1A\r\033[K") // Move up one line, carriage return, clear line
 	}
 
-	if input == "" {
-		return defaultYes
-	}
-
-	return input == "y" || input == "yes"
+	return result
 }
 
 // AskForInput prompts the user for text input.
@@ -53,12 +54,13 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 func AskForInput(prompt string, required bool) string {
 	for {
 		fmt.Printf("%s %s ", promptPrefix, prompt)
+
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
 
 		if input != "" || !required {
 			if term.IsTerminal(int(os.Stdout.Fd())) {
-				ClearLine()
+				fmt.Print("\033[1A\r\033[K") // Move up one line, carriage return, clear line
 			}
 			return input
 		}
@@ -113,6 +115,6 @@ func StopSpinner(s *spinner.Spinner) {
 // This might not be needed if spinner cleans up properly, but can be useful.
 func ClearLine() {
 	if term.IsTerminal(int(os.Stdout.Fd())) {
-		fmt.Print("\r\033[K") // Carriage return, clear line
+		fmt.Print("\033[1A\r\033[K") // Move up one line, carriage return, clear line
 	}
 }
