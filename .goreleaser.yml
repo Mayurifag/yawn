@@ -1,6 +1,9 @@
+---
 # .goreleaser.yml
 # Visit https://goreleaser.com for documentation on how to customize this
 # behavior.
+version: 2
+
 before:
   hooks:
     # You may remove this if you don't use go modules.
@@ -36,21 +39,19 @@ builds:
 archives:
   - # Archive configuration
     id: yawn-archives
-    # Builds to include in the archive. References the build ID 'yawn'.
-    builds:
-      - yawn
-    # Archive format. 'tar.gz' for Linux/macOS, 'zip' for Windows.
-    format: binary # Use 'binary' to just attach the executable directly
+    format_overrides:
+      - goos: windows
+        format: zip
     # Optional: Name template for the archive files.
-    # name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     # Optional: Add extra files like README, LICENSE to the archive.
     # files:
     #   - README.md
     #   - LICENSE
 
 # We are skipping checksum generation as requested
-# checksum:
-#   name_template: 'checksums.txt'
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
 
 # We are skipping snapshot generation as requested
 # snapshot:
