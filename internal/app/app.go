@@ -195,7 +195,7 @@ func (a *App) Run(ctx context.Context) error {
 	// 8. Push
 	shouldPush := a.Config.AutoPush
 	if !shouldPush {
-		if ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), false) { // Default No
+		if ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), true) {
 			shouldPush = true
 		}
 	}
