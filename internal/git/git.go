@@ -19,6 +19,9 @@ type GitClient interface {
 	Commit(message string) error
 	Push(command string) error
 	HasRemotes() (bool, error)
+	GetCurrentBranch() (string, error)
+	GetRemoteURL(remoteName string) (string, error)
+	GetLastCommitHash() (string, error)
 }
 
 // ExecGitClient implements GitClient using os/exec.
@@ -276,9 +279,70 @@ func (g *ExecGitClient) HasRemotes() (bool, error) {
 	return hasRemotes, nil
 }
 
+// GetCurrentBranch returns the name of the current branch.
+// If in a detached HEAD state, it returns "HEAD" and an error indicating the detached state.
+func (g *ExecGitClient) GetCurrentBranch() (string, error) {
+	// First try git branch --show-current which is more reliable
+	output, err := g.runGitCommand("branch", "--show-current")
+	if err != nil {
+		// If the command failed, check if we're in a detached HEAD state
+		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 1 {
+			// We might be in a detached HEAD state, try to verify
+			detached, err := g.isDetachedHEAD()
+			if err == nil && detached {
+				return "HEAD", fmt.Errorf("detached HEAD state")
+			}
+		}
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	branch := strings.TrimSpace(output)
+	if branch == "" {
+		return "", fmt.Errorf("no current branch found")
+	}
+
+	return branch, nil
+}
+
+// isDetachedHEAD checks if the repository is in a detached HEAD state.
+func (g *ExecGitClient) isDetachedHEAD() (bool, error) {
+	output, err := g.runGitCommand("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("failed to check HEAD state: %w", err)
+	}
+	return strings.TrimSpace(output) == "HEAD", nil
+}
+
+// GetRemoteURL returns the URL of the specified remote repository.
+// If remoteName is empty, it defaults to "origin".
+func (g *ExecGitClient) GetRemoteURL(remoteName string) (string, error) {
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+
+	output, err := g.runGitCommand("config", "--get", fmt.Sprintf("remote.%s.url", remoteName))
+	if err != nil {
+		// Check if it's a GitError with exit code 1 (remote not found)
+		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 1 {
+			return "", fmt.Errorf("remote '%s' not found", remoteName)
+		}
+		return "", fmt.Errorf("failed to get remote URL for '%s': %w", remoteName, err)
+	}
+	return strings.TrimSpace(output), nil
+}
+
+// GetLastCommitHash returns the hash of the last commit.
+func (g *ExecGitClient) GetLastCommitHash() (string, error) {
+	output, err := g.runGitCommand("rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to get last commit hash: %w", err)
+	}
+	return strings.TrimSpace(output), nil
+}
+
 // --- Mock Client for Testing ---
 
-// MockGitClient is a mock implementation of GitClient.
+// MockGitClient implements GitClient for testing purposes.
 type MockGitClient struct {
 	MockHasStagedChanges      func() (bool, error)
 	MockHasUncommittedChanges func() (bool, error)
@@ -288,6 +352,9 @@ type MockGitClient struct {
 	MockCommit                func(message string) error
 	MockPush                  func(command string) error
 	MockHasRemotes            func() (bool, error)
+	MockGetCurrentBranch      func() (string, error)
+	MockGetRemoteURL          func(remoteName string) (string, error)
+	MockGetLastCommitHash     func() (string, error)
 }
 
 func (m *MockGitClient) HasStagedChanges() (bool, error) {
@@ -344,4 +411,28 @@ func (m *MockGitClient) HasRemotes() (bool, error) {
 		return m.MockHasRemotes()
 	}
 	return true, nil // Default to having remotes for testing flow
+}
+
+// GetCurrentBranch implements GitClient.GetCurrentBranch for MockGitClient.
+func (m *MockGitClient) GetCurrentBranch() (string, error) {
+	if m.MockGetCurrentBranch != nil {
+		return m.MockGetCurrentBranch()
+	}
+	return "", fmt.Errorf("MockGetCurrentBranch not implemented")
+}
+
+// GetRemoteURL implements GitClient.GetRemoteURL for MockGitClient.
+func (m *MockGitClient) GetRemoteURL(remoteName string) (string, error) {
+	if m.MockGetRemoteURL != nil {
+		return m.MockGetRemoteURL(remoteName)
+	}
+	return "", fmt.Errorf("MockGetRemoteURL not implemented")
+}
+
+// GetLastCommitHash implements GitClient.GetLastCommitHash for MockGitClient.
+func (m *MockGitClient) GetLastCommitHash() (string, error) {
+	if m.MockGetLastCommitHash != nil {
+		return m.MockGetLastCommitHash()
+	}
+	return "", fmt.Errorf("MockGetLastCommitHash not implemented")
 }

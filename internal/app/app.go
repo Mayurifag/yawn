@@ -16,6 +16,7 @@ type App struct {
 	Config       config.Config
 	GitClient    git.GitClient
 	GeminiClient gemini.Client
+	Pusher       git.PushProvider
 }
 
 // NewApp creates a new App instance.
@@ -24,6 +25,7 @@ func NewApp(cfg config.Config, gitClient git.GitClient, geminiClient gemini.Clie
 		Config:       cfg,
 		GitClient:    gitClient,
 		GeminiClient: geminiClient,
+		Pusher:       git.NewPusher(gitClient),
 	}
 }
 
@@ -200,7 +202,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	if shouldPush {
 		// Check for remotes before attempting to push
-		hasRemotes, err := a.GitClient.HasRemotes()
+		hasRemotes, err := a.Pusher.HasRemotes()
 		if err != nil {
 			ui.PrintError(fmt.Sprintf("Failed to check for remote repositories: %v", err))
 			// Continue without pushing, but log the error
@@ -214,14 +216,18 @@ func (a *App) Run(ctx context.Context) error {
 				ui.PrintInfo(fmt.Sprintf("Pushing changes using command: %s", a.Config.PushCommand))
 			}
 			spinner := ui.StartSpinner("Pushing changes")
-			err = a.GitClient.Push(a.Config.PushCommand)
+			result, err := a.Pusher.ExecutePush(a.Config.PushCommand)
 			ui.StopSpinner(spinner)
 			ui.ClearLine()
+
 			if err != nil {
 				ui.PrintError(fmt.Sprintf("Failed to push changes: %v", err))
 				// Don't return error here, commit succeeded. Push failure is less critical.
-			} else {
+			} else if result.Success {
 				ui.PrintSuccess("Changes pushed successfully.")
+				if result.RepoLink != "" {
+					ui.PrintInfo(fmt.Sprintf("View your repository: %s", result.RepoLink))
+				}
 			}
 		}
 	} else if a.Config.Verbose {
