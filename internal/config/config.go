@@ -75,10 +75,13 @@ type Config struct {
 	sources map[string]string `toml:"-"` // Key: field name, Value: source (default, user, project, env, flag)
 }
 
+// getUserConfigPath returns the path to the user's config file.
+var getUserConfigPathFunc = getUserConfigPath
+
 // loadUserConfig attempts to load configuration from the user's config file.
 // Returns the loaded config, metadata, and any error encountered.
 func loadUserConfig() (Config, toml.MetaData, error) {
-	userConfigPath, err := getUserConfigPath()
+	userConfigPath, err := getUserConfigPathFunc()
 	if err != nil {
 		return Config{}, toml.MetaData{}, nil // Non-fatal, just means we can't load user config
 	}
@@ -99,10 +102,45 @@ func loadUserConfig() (Config, toml.MetaData, error) {
 	return loadedCfg, metadata, nil
 }
 
+// findProjectConfig searches for .yawn.toml starting from startPath and going up.
+var findProjectConfigFunc = findProjectConfig
+
+func findProjectConfig(startPath string) string {
+	dir, err := filepath.Abs(startPath) // Start with absolute path
+	if err != nil {
+		// Cannot get absolute path, unlikely but possible
+		return ""
+	}
+
+	for {
+		configPath := filepath.Join(dir, ProjectConfigName)
+		if _, err := os.Stat(configPath); err == nil {
+			// Check if it's readable
+			f, openErr := os.Open(configPath)
+			if openErr == nil {
+				f.Close()
+				return configPath // Found readable config file
+			}
+			// If Stat worked but Open failed, might be permissions issue, stop searching up?
+			// Let's continue searching up for now, maybe a higher level one is readable.
+		} else if !os.IsNotExist(err) {
+			// Error other than "not found" while checking file, stop searching.
+			break
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir { // Reached root directory
+			break
+		}
+		dir = parent
+	}
+	return "" // Not found
+}
+
 // loadProjectConfig attempts to load configuration from the project's config file.
 // Returns the loaded config, metadata, and any error encountered.
 func loadProjectConfig(projectPath string) (Config, toml.MetaData, error) {
-	projectConfigPath := findProjectConfig(projectPath)
+	projectConfigPath := findProjectConfigFunc(projectPath)
 	if projectConfigPath == "" {
 		return Config{}, toml.MetaData{}, nil // No project config found, not an error
 	}
@@ -122,28 +160,45 @@ func applyEnvConfig(cfg *Config) {
 }
 
 // applyFlags applies command-line flags to the configuration.
-func applyFlags(cfg *Config, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) {
-	if verboseFlag {
-		cfg.Verbose = true
+func applyFlags(
+	cfg *Config,
+	verboseFlag bool,
+	apiKeyFlag string,
+	autoStageFlag bool,
+	autoPushFlag bool,
+	flagsSpecified ...string, // Names of flags that were explicitly specified
+) {
+	// Create a map to quickly check if a flag was specified
+	specified := make(map[string]bool)
+	for _, flag := range flagsSpecified {
+		specified[flag] = true
+	}
+
+	// Only apply flags that were explicitly specified
+	if specified["verbose"] {
+		cfg.Verbose = verboseFlag
 		cfg.sources["Verbose"] = "flag"
 	}
-	if apiKeyFlag != "" {
+
+	if specified["api-key"] && apiKeyFlag != "" {
 		cfg.GeminiAPIKey = apiKeyFlag
 		cfg.sources["GeminiAPIKey"] = "flag"
 	}
-	if autoStageFlag {
-		cfg.AutoStage = true
+
+	if specified["stage"] {
+		cfg.AutoStage = autoStageFlag
 		cfg.sources["AutoStage"] = "flag"
 	}
-	if autoPushFlag {
-		cfg.AutoPush = true
+
+	if specified["push"] {
+		cfg.AutoPush = autoPushFlag
 		cfg.sources["AutoPush"] = "flag"
 	}
 }
 
 // logConfigLoadingSummary logs information about where configuration was loaded from.
 func logConfigLoadingSummary(cfg *Config, projectPath string) {
-	userConfigPath, err := getUserConfigPath()
+	userConfigPath, err := getUserConfigPathFunc()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Could not determine user config path: %v\n", err)
 	} else if userConfigPath != "" {
@@ -156,9 +211,11 @@ func logConfigLoadingSummary(cfg *Config, projectPath string) {
 		}
 	}
 
-	projectConfigPath := findProjectConfig(projectPath)
+	projectConfigPath := findProjectConfigFunc(projectPath)
 	if projectConfigPath != "" {
 		fmt.Fprintf(os.Stderr, "[CONFIG] Loaded project config: %s\n", projectConfigPath)
+	} else if projectPath != "" {
+		fmt.Fprintf(os.Stderr, "[CONFIG] No project config found in or above %s\n", projectPath)
 	}
 
 	fmt.Fprintln(os.Stderr, "[CONFIG] Applied environment variables.")
@@ -169,7 +226,14 @@ func logConfigLoadingSummary(cfg *Config, projectPath string) {
 
 // LoadConfig loads configuration from defaults, user file, project file, and environment variables.
 // It returns the merged configuration and an error if any occurs during loading.
-func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) (Config, error) {
+func LoadConfig(
+	projectPath string,
+	verboseFlag bool,
+	apiKeyFlag string,
+	autoStageFlag bool,
+	autoPushFlag bool,
+	flagsSpecified ...string, // Names of flags that were explicitly specified
+) (Config, error) {
 	// Initialize config with defaults
 	cfg, err := loadDefaults()
 	if err != nil {
@@ -190,7 +254,7 @@ func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, autoSta
 	applyEnvConfig(&cfg)
 
 	// Apply command-line flags (highest precedence)
-	applyFlags(&cfg, verboseFlag, apiKeyFlag, autoStageFlag, autoPushFlag)
+	applyFlags(&cfg, verboseFlag, apiKeyFlag, autoStageFlag, autoPushFlag, flagsSpecified...)
 
 	// Log configuration loading process if verbose
 	if cfg.Verbose {
@@ -238,7 +302,7 @@ func applyProjectConfig(cfg *Config, projectPath string) error {
 	}
 
 	// Only merge if we actually loaded something
-	if !projectMeta.IsDefined("") {
+	if len(projectMeta.Keys()) == 0 {
 		return nil
 	}
 
@@ -409,39 +473,6 @@ func ensureUserConfigDir() (string, error) {
 	}
 
 	return configPath, nil
-}
-
-// findProjectConfig searches for .yawn.toml starting from startPath and going up.
-func findProjectConfig(startPath string) string {
-	dir, err := filepath.Abs(startPath) // Start with absolute path
-	if err != nil {
-		// Cannot get absolute path, unlikely but possible
-		return ""
-	}
-
-	for {
-		configPath := filepath.Join(dir, ProjectConfigName)
-		if _, err := os.Stat(configPath); err == nil {
-			// Check if it's readable
-			f, openErr := os.Open(configPath)
-			if openErr == nil {
-				f.Close()
-				return configPath // Found readable config file
-			}
-			// If Stat worked but Open failed, might be permissions issue, stop searching up?
-			// Let's continue searching up for now, maybe a higher level one is readable.
-		} else if !os.IsNotExist(err) {
-			// Error other than "not found" while checking file, stop searching.
-			break
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir { // Reached root directory
-			break
-		}
-		dir = parent
-	}
-	return "" // Not found
 }
 
 // GetRequestTimeout converts the config seconds to time.Duration.

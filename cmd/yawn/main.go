@@ -62,7 +62,23 @@ variables (YAWN_*)`,
 		}
 
 		// Load configuration with flag overrides
-		cfg, err := config.LoadConfig(projectPath, flagVerbose, flagAPIKey, flagAutoStage, flagAutoPush)
+		flagsSpecified := []string{}
+
+		// Check which flags were explicitly set by the user
+		if cmd.Flags().Changed("verbose") {
+			flagsSpecified = append(flagsSpecified, "verbose")
+		}
+		if cmd.Flags().Changed("api-key") {
+			flagsSpecified = append(flagsSpecified, "api-key")
+		}
+		if cmd.Flags().Changed("auto-stage") {
+			flagsSpecified = append(flagsSpecified, "stage")
+		}
+		if cmd.Flags().Changed("auto-push") {
+			flagsSpecified = append(flagsSpecified, "push")
+		}
+
+		cfg, err := config.LoadConfig(projectPath, flagVerbose, flagAPIKey, flagAutoStage, flagAutoPush, flagsSpecified...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
 			return err
