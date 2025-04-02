@@ -41,9 +41,8 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 	result := defaultYes
 	if input != "" {
 		result = input == "y" || input == "yes"
-
-		ClearLine()
 	}
+	ClearLine()
 
 	return result
 }
