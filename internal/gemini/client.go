@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -27,19 +28,37 @@ type GenaiClient struct {
 
 // NewClient creates a new Gemini client.
 func NewClient(apiKey string) (*GenaiClient, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("API key is required")
-	}
-
-	client, err := genai.NewClient(context.Background(), option.WithAPIKey(apiKey))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Gemini client: %w", err)
-	}
-
-	return &GenaiClient{
+	// Create a client with the provided API key, which might be empty
+	// The actual client initialization will be deferred until SetAPIKey is called
+	// or an API call is attempted
+	client := &GenaiClient{
 		apiKey: apiKey,
-		client: client,
-	}, nil
+	}
+
+	// If an API key is provided, initialize the client
+	if apiKey != "" {
+		err := client.initClient()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return client, nil
+}
+
+// initClient initializes the underlying genai.Client
+func (c *GenaiClient) initClient() error {
+	if c.apiKey == "" {
+		return fmt.Errorf("API key is required")
+	}
+
+	client, err := genai.NewClient(context.Background(), option.WithAPIKey(c.apiKey))
+	if err != nil {
+		return fmt.Errorf("failed to create Gemini client: %w", err)
+	}
+
+	c.client = client
+	return nil
 }
 
 // SetAPIKey updates the API key used by the client.
@@ -48,14 +67,8 @@ func (c *GenaiClient) SetAPIKey(apiKey string) error {
 		return fmt.Errorf("API key is required")
 	}
 
-	client, err := genai.NewClient(context.Background(), option.WithAPIKey(apiKey))
-	if err != nil {
-		return fmt.Errorf("failed to create Gemini client: %w", err)
-	}
-
 	c.apiKey = apiKey
-	c.client = client
-	return nil
+	return c.initClient()
 }
 
 // GeminiError represents specific error conditions from the Gemini API.
@@ -73,6 +86,30 @@ func (e *GeminiError) Error() string {
 // Unwrap implements the errors.Unwrap interface for GeminiError.
 func (e *GeminiError) Unwrap() error {
 	return e.Err
+}
+
+// GeminiErrorType defines the possible error types that can occur when using the Gemini API.
+type GeminiErrorType string
+
+// Predefined error types for Gemini API operations
+const (
+	ErrTokenLimit    GeminiErrorType = "token_limit"
+	ErrAuth          GeminiErrorType = "auth"
+	ErrRateLimit     GeminiErrorType = "rate_limit"
+	ErrSafety        GeminiErrorType = "safety"
+	ErrEmptyResponse GeminiErrorType = "empty_response"
+	ErrEmptyContent  GeminiErrorType = "empty_content"
+	ErrInvalidFormat GeminiErrorType = "invalid_format"
+	ErrEmptyMessage  GeminiErrorType = "empty_message"
+)
+
+// NewGeminiError creates a new GeminiError with the specified type, message, and wrapped error.
+func NewGeminiError(errType GeminiErrorType, message string, err error) *GeminiError {
+	return &GeminiError{
+		Type:    string(errType),
+		Message: message,
+		Err:     err,
+	}
 }
 
 // estimateTokenCount estimates the number of tokens in a string.
@@ -142,6 +179,13 @@ func cleanCommitMessage(message string) string {
 // It takes the model name, prompt template, diff content, and max tokens as parameters.
 // Returns the generated message and any error encountered.
 func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int) (string, error) {
+	// Initialize client if necessary
+	if c.client == nil {
+		if err := c.initClient(); err != nil {
+			return "", err
+		}
+	}
+
 	// Estimate total token count
 	promptTokens := estimateTokenCount(promptTemplate)
 	diffTokens := estimateTokenCount(diff)
@@ -149,10 +193,11 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 
 	// Check if we're likely to exceed the token limit
 	if totalTokens > maxTokens {
-		return "", &GeminiError{
-			Type:    "token_limit",
-			Message: fmt.Sprintf("estimated token count (%d) exceeds limit (%d). Consider reducing the diff size or increasing max_tokens", totalTokens, maxTokens),
-		}
+		return "", NewGeminiError(
+			ErrTokenLimit,
+			fmt.Sprintf("estimated token count (%d) exceeds limit (%d). Consider reducing the diff size or increasing max_tokens", totalTokens, maxTokens),
+			nil,
+		)
 	}
 
 	// Create the model
@@ -164,61 +209,86 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 	// Generate content
 	resp, err := model.GenerateContent(ctx, genai.Text(finalPrompt))
 	if err != nil {
-		// Check for specific error conditions
-		if strings.Contains(err.Error(), "authentication") {
-			return "", &GeminiError{
-				Type:    "auth",
-				Message: "invalid API key or authentication failed",
-				Err:     err,
+		// Check if this is a BlockedError from the genai SDK
+		var blockedErr *genai.BlockedError
+		if errors.As(err, &blockedErr) {
+			// Check if we have prompt feedback
+			if blockedErr.PromptFeedback != nil && blockedErr.PromptFeedback.BlockReason != genai.BlockReasonUnspecified {
+				return "", NewGeminiError(
+					ErrSafety,
+					fmt.Sprintf("prompt blocked: %s", blockedErr.PromptFeedback.BlockReason),
+					err,
+				)
 			}
-		}
-		if strings.Contains(err.Error(), "rate limit") {
-			return "", &GeminiError{
-				Type:    "rate_limit",
-				Message: "API rate limit exceeded. Please try again later",
-				Err:     err,
+
+			// Check if we have candidate feedback (response blocked)
+			if blockedErr.Candidate != nil && blockedErr.Candidate.FinishReason == genai.FinishReasonSafety {
+				return "", NewGeminiError(
+					ErrSafety,
+					"response blocked by safety settings",
+					err,
+				)
 			}
+
+			// Fallback for other blocked errors
+			return "", NewGeminiError(
+				ErrSafety,
+				"content blocked for safety reasons",
+				err,
+			)
 		}
-		if strings.Contains(err.Error(), "safety") {
-			return "", &GeminiError{
-				Type:    "safety",
-				Message: "content blocked by safety settings",
-				Err:     err,
-			}
+
+		// Fallback to string-based error detection for other error types
+		// that may not be explicitly modeled in the SDK
+		errMsg := err.Error()
+		switch {
+		case strings.Contains(errMsg, "authentication"), strings.Contains(errMsg, "invalid token"),
+			strings.Contains(errMsg, "auth"), strings.Contains(errMsg, "credential"):
+			return "", NewGeminiError(ErrAuth, "invalid API key or authentication failed", err)
+
+		case strings.Contains(errMsg, "rate limit"), strings.Contains(errMsg, "quota"):
+			return "", NewGeminiError(ErrRateLimit, "API rate limit exceeded. Please try again later", err)
+
+		default:
+			// Generic error with proper wrapping
+			return "", fmt.Errorf("failed to generate commit message: %w", err)
 		}
-		return "", fmt.Errorf("failed to generate commit message: %w", err)
 	}
 
 	// Process the response
 	if resp == nil || len(resp.Candidates) == 0 {
-		return "", &GeminiError{
-			Type:    "empty_response",
-			Message: "received empty response from Gemini API",
-		}
+		return "", NewGeminiError(
+			ErrEmptyResponse,
+			"received empty response from Gemini API",
+			nil,
+		)
 	}
 
 	candidate := resp.Candidates[0]
 	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
-		return "", &GeminiError{
-			Type:    "empty_content",
-			Message: "response content is empty",
-		}
+		return "", NewGeminiError(
+			ErrEmptyContent,
+			"response content is empty",
+			nil,
+		)
 	}
 
 	// Extract and clean the message
 	part := candidate.Content.Parts[0]
 	message, ok := part.(genai.Text)
 	if !ok {
-		return "", &GeminiError{
-			Type:    "invalid_format",
-			Message: "unexpected response format: expected text content",
-		}
+		return "", NewGeminiError(
+			ErrInvalidFormat,
+			"unexpected response format: expected text content",
+			nil,
+		)
 	}
 	if message == "" {
-		return "", &GeminiError{
-			Type:    "empty_message",
-			Message: "generated message is empty",
-		}
+		return "", NewGeminiError(
+			ErrEmptyMessage,
+			"generated message is empty",
+			nil,
+		)
 	}
 
 	return cleanCommitMessage(string(message)), nil
@@ -228,6 +298,7 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 // A common approximation is 1 token ~ 4 characters in English.
 // This doesn't account for specific model tokenization rules.
 func (c *GenaiClient) EstimateTokenCount(text string) int {
+	// No need to initialize client for this method since it doesn't use the API
 	charCount := utf8.RuneCountInString(text)
 	return (charCount / 4) + 5
 }

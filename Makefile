@@ -14,7 +14,7 @@ GOBUILD := $(GO) build
 GOCLEAN := $(GO) clean
 GOFMT := $(GO) fmt
 GOLINT := golangci-lint run
-# GOTEST := $(GO) test
+GOTEST := $(GO) test
 GOTOOL := $(GO) tool
 GORUN := $(GO) run
 
@@ -49,17 +49,17 @@ lint:
 	@echo "==> Linting code..."
 	$(GOLINT) ./...
 
-# # Run tests
-# test:
-# 	@echo "==> Running tests..."
-# 	$(GOTEST) -race -covermode=atomic ./...
+# Run tests
+test:
+	@echo "==> Running tests..."
+	$(GOTEST) -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
 # Run tests with coverage report
-# coverage:
-# 	@echo "==> Running tests with coverage..."
-# 	$(GOTEST) -race -coverprofile=coverage.out -covermode=atomic ./...
-# 	@echo "==> Opening coverage report..."
-# 	$(GOTOOL) cover -html=coverage.out
+coverage:
+	@echo "==> Running tests with coverage..."
+	$(GOTEST) -v -race -coverprofile=coverage.out -covermode=atomic ./...
+	@echo "==> Opening coverage report..."
+	$(GOTOOL) cover -html=coverage.out
 
 # Generate default configuration file
 generate-config:

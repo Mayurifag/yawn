@@ -35,40 +35,6 @@ const (
 - Preserve newlines in the commit body. Each bullet point should be on its own line.
 - The body should be separated from the description by a blank line.
 
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
-
-Commits MUST be prefixed with a type, which consists of a noun, feat, fix, etc., followed by the OPTIONAL scope, OPTIONAL !, and REQUIRED terminal colon and space.
-
-The type feat MUST be used when a commit adds a new feature to your application or library.
-
-The type fix MUST be used when a commit represents a bug fix for your application.
-
-A scope MAY be provided after a type. A scope MUST consist of a noun describing a section of the codebase surrounded by parenthesis, e.g., fix(parser):
-
-A description MUST immediately follow the colon and space after the type/scope prefix. The description is a short summary of the code changes, e.g., fix: array parsing issue when multiple spaces were contained in string.
-
-A longer commit body MAY be provided after the short description, providing additional contextual information about the code changes. The body MUST begin one blank line after the description.
-
-A commit body is free-form and MAY consist of any number of newline separated paragraphs.
-
-One or more footers MAY be provided one blank line after the body. Each footer MUST consist of a word token, followed by either :<space> or <space>#, followed by a string value (this is inspired by the git trailer convention).
-
-A footer's token MUST use - in place of whitespace characters, e.g., Acked-by (this helps differentiate the footer section from a multi-paragraph body). An exception is made for BREAKING CHANGE, which MAY also be used as a token.
-
-A footer's value MAY contain spaces and newlines, and parsing MUST terminate when the next valid footer token/separator pair is observed.
-
-Breaking changes MUST be indicated in the type/scope prefix of a commit, or as an entry in the footer.
-
-If included as a footer, a breaking change MUST consist of the uppercase text BREAKING CHANGE, followed by a colon, space, and description, e.g., BREAKING CHANGE: environment variables now take precedence over config files.
-
-If included in the type/scope prefix, breaking changes MUST be indicated by a ! immediately before the :. If ! is used, BREAKING CHANGE: MAY be omitted from the footer section, and the commit description SHALL be used to describe the breaking change.
-
-Types other than feat and fix MAY be used in your commit messages, e.g., docs: updated ref docs.
-
-The units of information that make up Conventional Commits MUST NOT be treated as case sensitive by implementors, with the exception of BREAKING CHANGE which MUST be uppercase.
-
-BREAKING-CHANGE MUST be synonymous with BREAKING CHANGE, when used as a token in a footer.
-
 Structure of output:
 <type>[optional scope]: <description>
 
@@ -151,9 +117,13 @@ func loadProjectConfig(projectPath string) (Config, toml.MetaData, error) {
 	return loadedCfg, metadata, nil
 }
 
-// applyCommandLineFlags applies command-line flags to the configuration.
-// Returns the updated config with sources tracked.
-func applyCommandLineFlags(cfg Config, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) Config {
+// applyEnvConfig applies configuration from environment variables.
+func applyEnvConfig(cfg *Config) {
+	loadConfigFromEnv(cfg)
+}
+
+// applyFlags applies command-line flags to the configuration.
+func applyFlags(cfg *Config, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) {
 	if verboseFlag {
 		cfg.Verbose = true
 		cfg.sources["Verbose"] = "flag"
@@ -170,14 +140,12 @@ func applyCommandLineFlags(cfg Config, verboseFlag bool, apiKeyFlag string, auto
 		cfg.AutoPush = true
 		cfg.sources["AutoPush"] = "flag"
 	}
-	return cfg
 }
 
-// logConfigLoading logs information about the configuration loading process.
-func logConfigLoading(cfg Config, userConfigPath string, projectConfigPath string) {
-	if !cfg.Verbose {
-		return
-	}
+// logConfigLoadingSummary logs information about where configuration was loaded from.
+func logConfigLoadingSummary(cfg *Config, projectPath string) {
+	userConfigPath, _ := getUserConfigPath()
+	projectConfigPath := findProjectConfig(projectPath)
 
 	if userConfigPath != "" {
 		if _, err := os.Stat(userConfigPath); err == nil {
@@ -196,45 +164,85 @@ func logConfigLoading(cfg Config, userConfigPath string, projectConfigPath strin
 	fmt.Fprintln(os.Stderr, "[CONFIG] Applied environment variables.")
 	fmt.Fprintln(os.Stderr, "[CONFIG] Applied command-line flags.")
 
-	logConfigSources(cfg)
+	logConfigSources(*cfg)
 }
 
 // LoadConfig loads configuration from defaults, user file, project file, and environment variables.
 // It returns the merged configuration and an error if any occurs during loading.
 func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) (Config, error) {
-	// Start with default configuration
+	// Initialize config with defaults
+	cfg, err := loadDefaults()
+	if err != nil {
+		return cfg, fmt.Errorf("failed to load default configuration: %w", err)
+	}
+
+	// Load and apply user config
+	if err := applyUserConfig(&cfg); err != nil {
+		return cfg, fmt.Errorf("failed to apply user configuration: %w", err)
+	}
+
+	// Load and apply project config
+	if err := applyProjectConfig(&cfg, projectPath); err != nil {
+		return cfg, fmt.Errorf("failed to apply project configuration: %w", err)
+	}
+
+	// Apply environment variables
+	applyEnvConfig(&cfg)
+
+	// Apply command-line flags (highest precedence)
+	applyFlags(&cfg, verboseFlag, apiKeyFlag, autoStageFlag, autoPushFlag)
+
+	// Log configuration loading process if verbose
+	if cfg.Verbose {
+		logConfigLoadingSummary(&cfg, projectPath)
+	}
+
+	return cfg, nil
+}
+
+// loadDefaults initializes a configuration with default values.
+func loadDefaults() (Config, error) {
 	cfg := defaultConfig()
 	cfg.sources = make(map[string]string)
+
+	// Mark all fields as coming from defaults
 	for k := range toMap(cfg) {
 		cfg.sources[k] = "default"
 	}
 
-	// Load user config (if available)
+	return cfg, nil
+}
+
+// applyUserConfig loads and applies user configuration from the user config file.
+func applyUserConfig(cfg *Config) error {
 	userCfg, userMeta, err := loadUserConfig()
 	if err != nil {
-		return cfg, err
+		return err
 	}
-	mergeConfig(&cfg, userCfg, userMeta, "user")
 
-	// Load project config (if available)
+	// Only merge if we actually loaded something
+	if !userMeta.IsDefined("") {
+		return nil
+	}
+
+	mergeConfig(cfg, userCfg, userMeta, "user")
+	return nil
+}
+
+// applyProjectConfig loads and applies project-specific configuration.
+func applyProjectConfig(cfg *Config, projectPath string) error {
 	projectCfg, projectMeta, err := loadProjectConfig(projectPath)
 	if err != nil {
-		return cfg, err
+		return err
 	}
-	mergeConfig(&cfg, projectCfg, projectMeta, "project")
 
-	// Load from environment variables
-	loadConfigFromEnv(&cfg)
+	// Only merge if we actually loaded something
+	if !projectMeta.IsDefined("") {
+		return nil
+	}
 
-	// Apply command-line flags (highest precedence)
-	cfg = applyCommandLineFlags(cfg, verboseFlag, apiKeyFlag, autoStageFlag, autoPushFlag)
-
-	// Log configuration loading process if verbose
-	userConfigPath, _ := getUserConfigPath()
-	projectConfigPath := findProjectConfig(projectPath)
-	logConfigLoading(cfg, userConfigPath, projectConfigPath)
-
-	return cfg, nil
+	mergeConfig(cfg, projectCfg, projectMeta, "project")
+	return nil
 }
 
 func defaultConfig() Config {
@@ -250,9 +258,6 @@ func defaultConfig() Config {
 		// API Key has no default
 	}
 }
-
-// loadSpecificConfigFromFile is deprecated by using DecodeFile directly in LoadConfig
-// func loadSpecificConfigFromFile(path string, targetCfg *Config) error { ... }
 
 // mergeConfig merges loadedCfg into baseCfg, tracking the source, using metadata to check defined keys.
 func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
@@ -433,16 +438,30 @@ func (c Config) GetRequestTimeout() time.Duration {
 	return time.Duration(c.RequestTimeoutSeconds) * time.Second
 }
 
-// GenerateDefaultConfig returns the default configuration as a TOML string
-// with comments and proper formatting.
-func GenerateDefaultConfig() (string, error) {
+// GenerateConfigContent generates the configuration content in TOML format.
+// It accepts an optional API key. If the API key is empty, it's excluded from the output.
+// The function returns a byte slice for direct file writing and an error if encoding fails.
+func GenerateConfigContent(apiKey string) ([]byte, error) {
 	var buf bytes.Buffer
-	encoder := toml.NewEncoder(&buf)
-	encoder.Indent = ""
 
-	// Create a map with default values
-	defaults := map[string]interface{}{
-		"gemini_api_key":          "", // No default, must be provided
+	// Write comments first
+	comments := []string{
+		"# Configuration file for yawn - AI Git Commiter using Google Gemini",
+		"#",
+		"# This file can be placed in (or both):",
+		"# - ~/.config/yawn/config.toml (user config)",
+		"# - ./.yawn.toml (project config, you might want to add this to your .gitignore)",
+		"#",
+		"# Precedence order: command line flags > environment variables > project config > user config > defaults",
+	}
+
+	for _, comment := range comments {
+		buf.WriteString(comment + "\n")
+	}
+	buf.WriteString("\n")
+
+	// Create config with default values
+	cfg := map[string]interface{}{
 		"gemini_model":            DefaultGeminiModel,
 		"max_tokens":              DefaultMaxTokens,
 		"request_timeout_seconds": DefaultTimeoutSecs,
@@ -453,31 +472,74 @@ func GenerateDefaultConfig() (string, error) {
 		"prompt":                  DefaultPrompt,
 	}
 
-	// Write comments before encoding
-	comments := []string{
-		"# Configuration file for yawn - AI Git Commiter using Google Gemini",
-		"#",
-		"# This file can be placed in (or both):",
-		"# - ~/.config/yawn/config.toml (user config)",
-		"# - ./.yawn.toml (project config, you might want to add this to your .gitignore)",
-		"#",
-		"# Precedence order: command line flags > environment variables > project config > user config",
-		"#",
-		"# When auto_stage is true, all unstaged changes will be automatically staged",
-		"# When auto_stage is false and there are unstaged changes, you will be prompted to stage them",
+	// Only include API key if it's provided
+	if apiKey != "" {
+		cfg["gemini_api_key"] = apiKey
 	}
 
-	for _, comment := range comments {
-		buf.WriteString(comment + "\n")
+	// Encode config as TOML
+	encoder := toml.NewEncoder(&buf)
+	encoder.Indent = ""
+	if err := encoder.Encode(cfg); err != nil {
+		return nil, fmt.Errorf("failed to encode config: %w", err)
 	}
-	buf.WriteString("\n")
 
-	err := encoder.Encode(defaults)
+	return buf.Bytes(), nil
+}
+
+// GenerateDefaultConfig returns the default configuration as a TOML string.
+// This is a wrapper for GenerateConfigContent for backward compatibility.
+func GenerateDefaultConfig() (string, error) {
+	content, err := GenerateConfigContent("")
 	if err != nil {
-		return "", fmt.Errorf("failed to encode default config: %w", err)
+		return "", err
+	}
+	return string(content), nil
+}
+
+// SaveAPIKeyToUserConfig saves the provided API key to the user's configuration file.
+// If the file doesn't exist, it creates a new one using GenerateConfigContent.
+// If the file exists, it preserves all other settings while updating the API key.
+func SaveAPIKeyToUserConfig(apiKey string) error {
+	configPath, err := getUserConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get user config path: %w", err)
 	}
 
-	return buf.String(), nil
+	dir := filepath.Dir(configPath)
+	// Ensure the directory exists (getUserConfigPath should do this, but double-check)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to ensure config directory exists: %w", err)
+	}
+
+	var configContent []byte
+
+	// Check if file exists
+	_, statErr := os.Stat(configPath)
+	if os.IsNotExist(statErr) {
+		// Generate content for new config file
+		configContent, err = GenerateConfigContent(apiKey)
+		if err != nil {
+			return fmt.Errorf("failed to generate new config content: %w", err)
+		}
+	} else if statErr == nil {
+		// Read and update existing config file
+		existingContent, readErr := os.ReadFile(configPath)
+		if readErr != nil {
+			return fmt.Errorf("failed to read existing config file %s: %w", configPath, readErr)
+		}
+
+		configContent, err = updateExistingConfigContent(existingContent, apiKey)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Other error checking the file
+		return fmt.Errorf("failed to check user config file %s: %w", configPath, statErr)
+	}
+
+	// Write the config content atomically
+	return writeConfigFileAtomically(configContent, configPath)
 }
 
 // --- Helper for logging sources ---
@@ -604,73 +666,6 @@ func writeConfigFileAtomically(content []byte, targetPath string) error {
 	return nil
 }
 
-// generateNewConfigContent generates TOML content for a new config file.
-func generateNewConfigContent(apiKey string) []byte {
-	var buf bytes.Buffer
-
-	// Write comments first
-	comments := []string{
-		"# Configuration file for yawn - AI Git Commiter using Google Gemini",
-		"#",
-		"# This file can be placed in:",
-		"# - ~/.config/yawn/config.toml (user config)",
-		"# - ./.yawn.toml (project config)",
-		"#",
-		"# Environment variables (YAWN_*) take precedence over this file",
-		"# Command line flags take precedence over environment variables",
-		"#",
-		"# Model configuration",
-		"#",
-		"# Git workflow configuration",
-		"#",
-		"# When auto_stage is true, all unstaged changes will be automatically staged",
-		"# When auto_stage is false and there are unstaged changes, you will be prompted to stage them",
-		"#",
-		"# Logging configuration",
-		"#",
-		"# Custom prompt for commit message generation",
-	}
-
-	for _, comment := range comments {
-		buf.WriteString(comment + "\n")
-	}
-	buf.WriteString("\n")
-
-	// Write the configuration values
-	configValues := []struct {
-		key   string
-		value interface{}
-	}{
-		{"gemini_api_key", apiKey},
-		{"gemini_model", DefaultGeminiModel},
-		{"max_tokens", DefaultMaxTokens},
-		{"request_timeout_seconds", DefaultTimeoutSecs},
-		{"auto_stage", DefaultAutoStage},
-		{"auto_push", DefaultAutoPush},
-		{"push_command", DefaultPushCommand},
-		{"verbose", DefaultVerbose},
-	}
-
-	for _, cv := range configValues {
-		switch v := cv.value.(type) {
-		case string:
-			if cv.key == "prompt" {
-				buf.WriteString("prompt = '''\n")
-				buf.WriteString(DefaultPrompt)
-				buf.WriteString("\n'''\n")
-			} else {
-				buf.WriteString(fmt.Sprintf("%s = %q\n", cv.key, v))
-			}
-		case int:
-			buf.WriteString(fmt.Sprintf("%s = %d\n", cv.key, v))
-		case bool:
-			buf.WriteString(fmt.Sprintf("%s = %v\n", cv.key, v))
-		}
-	}
-
-	return buf.Bytes()
-}
-
 // updateExistingConfigContent updates an existing config file's content with a new API key.
 func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte, error) {
 	// Decode into a generic map to preserve structure and comments
@@ -714,46 +709,4 @@ func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte,
 	}
 
 	return buf.Bytes(), nil
-}
-
-// SaveAPIKeyToUserConfig saves the provided API key to the user's configuration file.
-// If the file doesn't exist, it creates a new one using GenerateDefaultConfig format.
-// If the file exists, it preserves all other settings while updating the API key.
-func SaveAPIKeyToUserConfig(apiKey string) error {
-	configPath, err := getUserConfigPath()
-	if err != nil {
-		return fmt.Errorf("failed to get user config path: %w", err)
-	}
-
-	dir := filepath.Dir(configPath)
-	// Ensure the directory exists (getUserConfigPath should do this, but double-check)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to ensure config directory exists: %w", err)
-	}
-
-	var configContent []byte
-
-	// Check if file exists
-	_, statErr := os.Stat(configPath)
-	if os.IsNotExist(statErr) {
-		// Generate content for new config file
-		configContent = generateNewConfigContent(apiKey)
-	} else if statErr == nil {
-		// Read and update existing config file
-		existingContent, readErr := os.ReadFile(configPath)
-		if readErr != nil {
-			return fmt.Errorf("failed to read existing config file %s: %w", configPath, readErr)
-		}
-
-		configContent, err = updateExistingConfigContent(existingContent, apiKey)
-		if err != nil {
-			return err
-		}
-	} else {
-		// Other error checking the file
-		return fmt.Errorf("failed to check user config file %s: %w", configPath, statErr)
-	}
-
-	// Write the config content atomically
-	return writeConfigFileAtomically(configContent, configPath)
 }
