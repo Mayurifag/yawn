@@ -35,28 +35,6 @@ func TestNewClient(t *testing.T) {
 	})
 }
 
-func TestGenaiClient_SetAPIKey(t *testing.T) {
-	t.Run("empty API key", func(t *testing.T) {
-		client := &GenaiClient{apiKey: "original-key", client: nil}
-		err := client.SetAPIKey("")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "API key is required")
-		assert.Equal(t, "original-key", client.apiKey) // Key should not change
-	})
-
-	t.Run("valid API key", func(t *testing.T) {
-		client := &GenaiClient{apiKey: "original-key", client: nil}
-		err := client.SetAPIKey("new-key")
-		// Similar to NewClient, this might fail if the SDK validates immediately
-		if err == nil {
-			assert.Equal(t, "new-key", client.apiKey)
-			assert.NotNil(t, client.client)
-		} else {
-			t.Skip("Skipping test as dummy API key validation failed")
-		}
-	})
-}
-
 func TestEstimateTokenCount(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -265,11 +243,6 @@ func TestMockGeminiClient(t *testing.T) {
 		assert.Greater(t, count, 0)
 	})
 
-	t.Run("default SetAPIKey", func(t *testing.T) {
-		err := mockClient.SetAPIKey("test-key")
-		assert.NoError(t, err)
-	})
-
 	t.Run("custom GenerateCommitMessage", func(t *testing.T) {
 		mockClient.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
 			return "custom message", nil
@@ -285,15 +258,6 @@ func TestMockGeminiClient(t *testing.T) {
 		}
 		count := mockClient.EstimateTokenCount("test")
 		assert.Equal(t, 42, count)
-	})
-
-	t.Run("custom SetAPIKey", func(t *testing.T) {
-		mockClient.SetAPIKeyFunc = func(apiKey string) error {
-			return errors.New("custom error")
-		}
-		err := mockClient.SetAPIKey("test-key")
-		assert.Error(t, err)
-		assert.Equal(t, "custom error", err.Error())
 	})
 }
 

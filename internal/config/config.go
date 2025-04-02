@@ -57,8 +57,7 @@ BREAKING CHANGE: 'extends' key in config file is now used for extending other co
 
 Here is the diff to analyze:
 
-{{Diff}}
-`
+{{Diff}}`
 )
 
 // Config holds the application configuration. Fields must be exported for TOML decoding.
@@ -144,19 +143,20 @@ func applyFlags(cfg *Config, verboseFlag bool, apiKeyFlag string, autoStageFlag 
 
 // logConfigLoadingSummary logs information about where configuration was loaded from.
 func logConfigLoadingSummary(cfg *Config, projectPath string) {
-	userConfigPath, _ := getUserConfigPath()
-	projectConfigPath := findProjectConfig(projectPath)
-
-	if userConfigPath != "" {
-		if _, err := os.Stat(userConfigPath); err == nil {
+	userConfigPath, err := getUserConfigPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Could not determine user config path: %v\n", err)
+	} else if userConfigPath != "" {
+		if _, statErr := os.Stat(userConfigPath); statErr == nil {
 			fmt.Fprintf(os.Stderr, "[CONFIG] Loaded user config: %s\n", userConfigPath)
-		} else if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Error checking user config %s: %v\n", userConfigPath, err)
+		} else if !os.IsNotExist(statErr) {
+			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Error checking user config %s: %v\n", userConfigPath, statErr)
 		} else {
-			fmt.Fprintln(os.Stderr, "[CONFIG] Warning: Could not determine user config path.")
+			fmt.Fprintf(os.Stderr, "[CONFIG] No user config found at %s\n", userConfigPath)
 		}
 	}
 
+	projectConfigPath := findProjectConfig(projectPath)
 	if projectConfigPath != "" {
 		fmt.Fprintf(os.Stderr, "[CONFIG] Loaded project config: %s\n", projectConfigPath)
 	}
@@ -220,12 +220,13 @@ func applyUserConfig(cfg *Config) error {
 		return err
 	}
 
-	// Only merge if we actually loaded something
-	if !userMeta.IsDefined("") {
+	// Only merge if we actually loaded something (check for any keys in metadata)
+	if len(userMeta.Keys()) == 0 {
 		return nil
 	}
 
 	mergeConfig(cfg, userCfg, userMeta, "user")
+
 	return nil
 }
 
@@ -262,6 +263,7 @@ func defaultConfig() Config {
 // mergeConfig merges loadedCfg into baseCfg, tracking the source, using metadata to check defined keys.
 func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
 	// Manual approach using metadata.IsDefined for clarity:
+
 	if metadata.IsDefined("gemini_api_key") && loadedCfg.GeminiAPIKey != "" {
 		baseCfg.GeminiAPIKey = loadedCfg.GeminiAPIKey
 		baseCfg.sources["GeminiAPIKey"] = source
@@ -375,7 +377,7 @@ func loadConfigFromEnv(cfg *Config) {
 func getUserConfigPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 	// Follow XDG Base Directory Specification if possible
 	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
@@ -384,8 +386,19 @@ func getUserConfigPath() (string, error) {
 	}
 	yawnConfigDir := filepath.Join(xdgConfigHome, UserConfigDirName)
 
+	return filepath.Join(yawnConfigDir, UserConfigFileName), nil
+}
+
+// ensureUserConfigDir ensures the user config directory exists, creating it if necessary
+func ensureUserConfigDir() (string, error) {
+	configPath, err := getUserConfigPath()
+	if err != nil {
+		return "", err
+	}
+
+	yawnConfigDir := filepath.Dir(configPath)
+
 	// Ensure the directory exists with appropriate permissions (0700)
-	// MkdirAll is safe to call even if the directory exists
 	if err := os.MkdirAll(yawnConfigDir, 0700); err != nil {
 		// Check if the path exists but is a file
 		if stat, statErr := os.Stat(yawnConfigDir); statErr == nil && !stat.IsDir() {
@@ -394,7 +407,8 @@ func getUserConfigPath() (string, error) {
 		// If MkdirAll failed for other reasons (permissions?)
 		return "", fmt.Errorf("failed to create user config directory %s: %w", yawnConfigDir, err)
 	}
-	return filepath.Join(yawnConfigDir, UserConfigFileName), nil
+
+	return configPath, nil
 }
 
 // findProjectConfig searches for .yawn.toml starting from startPath and going up.
@@ -460,7 +474,7 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 	}
 	buf.WriteString("\n")
 
-	// Create config with default values
+	// Create config with default values - except for prompt which we'll handle separately
 	cfg := map[string]interface{}{
 		"gemini_model":            DefaultGeminiModel,
 		"max_tokens":              DefaultMaxTokens,
@@ -469,7 +483,6 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 		"auto_push":               DefaultAutoPush,
 		"push_command":            DefaultPushCommand,
 		"verbose":                 DefaultVerbose,
-		"prompt":                  DefaultPrompt,
 	}
 
 	// Only include API key if it's provided
@@ -483,6 +496,11 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 	if err := encoder.Encode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to encode config: %w", err)
 	}
+
+	// Add the prompt using multiline syntax
+	buf.WriteString("prompt = '''\n")
+	buf.WriteString(DefaultPrompt)
+	buf.WriteString("\n'''\n")
 
 	return buf.Bytes(), nil
 }
@@ -501,15 +519,10 @@ func GenerateDefaultConfig() (string, error) {
 // If the file doesn't exist, it creates a new one using GenerateConfigContent.
 // If the file exists, it preserves all other settings while updating the API key.
 func SaveAPIKeyToUserConfig(apiKey string) error {
-	configPath, err := getUserConfigPath()
+	// Get config path and ensure directory exists
+	configPath, err := ensureUserConfigDir()
 	if err != nil {
-		return fmt.Errorf("failed to get user config path: %w", err)
-	}
-
-	dir := filepath.Dir(configPath)
-	// Ensure the directory exists (getUserConfigPath should do this, but double-check)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to ensure config directory exists: %w", err)
+		return fmt.Errorf("failed to prepare user config directory: %w", err)
 	}
 
 	var configContent []byte

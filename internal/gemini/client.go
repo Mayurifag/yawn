@@ -17,7 +17,6 @@ import (
 type Client interface {
 	GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error)
 	EstimateTokenCount(text string) int
-	SetAPIKey(apiKey string) error
 }
 
 // GenaiClient implements the Client interface using the official Google GenAI SDK.
@@ -28,25 +27,25 @@ type GenaiClient struct {
 
 // NewClient creates a new Gemini client.
 func NewClient(apiKey string) (*GenaiClient, error) {
-	// Create a client with the provided API key, which might be empty
-	// The actual client initialization will be deferred until SetAPIKey is called
-	// or an API call is attempted
-	client := &GenaiClient{
+	// API key is now required
+	if apiKey == "" {
+		return nil, fmt.Errorf("API key is required")
+	}
+
+	c := &GenaiClient{
 		apiKey: apiKey,
 	}
 
-	// If an API key is provided, initialize the client
-	if apiKey != "" {
-		err := client.initClient()
-		if err != nil {
-			return nil, err
-		}
+	// Initialize the client immediately
+	if err := c.initClient(); err != nil {
+		return nil, err
 	}
 
-	return client, nil
+	return c, nil
 }
 
-// initClient initializes the underlying genai.Client
+// initClient initializes the underlying genai.Client.
+// It returns an error if the API key is empty or if client creation fails.
 func (c *GenaiClient) initClient() error {
 	if c.apiKey == "" {
 		return fmt.Errorf("API key is required")
@@ -59,16 +58,6 @@ func (c *GenaiClient) initClient() error {
 
 	c.client = client
 	return nil
-}
-
-// SetAPIKey updates the API key used by the client.
-func (c *GenaiClient) SetAPIKey(apiKey string) error {
-	if apiKey == "" {
-		return fmt.Errorf("API key is required")
-	}
-
-	c.apiKey = apiKey
-	return c.initClient()
 }
 
 // GeminiError represents specific error conditions from the Gemini API.
@@ -179,13 +168,6 @@ func cleanCommitMessage(message string) string {
 // It takes the model name, prompt template, diff content, and max tokens as parameters.
 // Returns the generated message and any error encountered.
 func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int) (string, error) {
-	// Initialize client if necessary
-	if c.client == nil {
-		if err := c.initClient(); err != nil {
-			return "", err
-		}
-	}
-
 	// Estimate total token count
 	promptTokens := estimateTokenCount(promptTemplate)
 	diffTokens := estimateTokenCount(diff)
@@ -298,7 +280,6 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 // A common approximation is 1 token ~ 4 characters in English.
 // This doesn't account for specific model tokenization rules.
 func (c *GenaiClient) EstimateTokenCount(text string) int {
-	// No need to initialize client for this method since it doesn't use the API
 	charCount := utf8.RuneCountInString(text)
 	return (charCount / 4) + 5
 }
@@ -307,7 +288,6 @@ func (c *GenaiClient) EstimateTokenCount(text string) int {
 type MockGeminiClient struct {
 	GenerateCommitMessageFunc func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error)
 	EstimateTokenCountFunc    func(text string) int
-	SetAPIKeyFunc             func(apiKey string) error
 }
 
 func (m *MockGeminiClient) GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
@@ -323,11 +303,4 @@ func (m *MockGeminiClient) EstimateTokenCount(text string) int {
 	}
 	charCount := utf8.RuneCountInString(text)
 	return (charCount / 4) + 5
-}
-
-func (m *MockGeminiClient) SetAPIKey(apiKey string) error {
-	if m.SetAPIKeyFunc != nil {
-		return m.SetAPIKeyFunc(apiKey)
-	}
-	return nil
 }

@@ -14,19 +14,17 @@ import (
 
 // App orchestrates the yawn application logic.
 type App struct {
-	Config       config.Config
-	GitClient    git.GitClient
-	GeminiClient gemini.Client
-	Pusher       git.PushProvider
+	Config    config.Config
+	GitClient git.GitClient
+	Pusher    git.PushProvider
 }
 
 // NewApp creates a new App instance.
-func NewApp(cfg config.Config, gitClient git.GitClient, geminiClient gemini.Client) *App {
+func NewApp(cfg config.Config, gitClient git.GitClient) *App {
 	return &App{
-		Config:       cfg,
-		GitClient:    gitClient,
-		GeminiClient: geminiClient,
-		Pusher:       git.NewPusher(gitClient),
+		Config:    cfg,
+		GitClient: gitClient,
+		Pusher:    git.NewPusher(gitClient),
 	}
 }
 
@@ -140,12 +138,18 @@ func (a *App) generateAndCommitChanges(ctx context.Context) error {
 		return fmt.Errorf("no staged changes to commit")
 	}
 
+	// Create a Gemini client with the API key (which is guaranteed to exist now)
+	geminiClient, err := gemini.NewClient(a.Config.GeminiAPIKey)
+	if err != nil {
+		return fmt.Errorf("failed to create Gemini client: %w", err)
+	}
+
 	// Generate commit message using Gemini with timeout
 	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
 	defer cancel()
 
 	spinner := ui.StartSpinner("Generating commit message...")
-	message, err := a.GeminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens)
+	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens)
 	ui.StopSpinner(spinner)
 	ui.ClearLine()
 

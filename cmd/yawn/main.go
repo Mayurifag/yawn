@@ -7,7 +7,6 @@ import (
 
 	"github.com/Mayurifag/yawn/internal/app"
 	"github.com/Mayurifag/yawn/internal/config"
-	"github.com/Mayurifag/yawn/internal/gemini"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/spf13/cobra"
 )
@@ -69,30 +68,14 @@ variables (YAWN_*)`,
 			return err
 		}
 
-		// Ensure API Key exists before creating Gemini Client
-		finalAPIKey := cfg.GeminiAPIKey // Get potentially overridden key
-		if finalAPIKey == "" {
-			// If still empty after load, prompt here or let App handle it?
-			// Let App handle the interactive prompt for better flow control.
-			// However, we need *a* client instance. Create it, App will check key inside Run.
-			if cfg.Verbose {
-				fmt.Fprintln(os.Stderr, "[MAIN] Gemini API key not found in config/env/flags, will prompt if needed.")
-			}
-		}
-
-		// Setup dependencies
+		// Setup git client
 		gitClient, err := git.NewExecGitClient(cfg.Verbose)
 		if err != nil {
 			return fmt.Errorf("failed to create git client: %w", err)
 		}
 
-		geminiClient, err := gemini.NewClient(finalAPIKey)
-		if err != nil {
-			return fmt.Errorf("failed to create Gemini client: %w", err)
-		}
-
 		// Create and run the application
-		yawnApp := app.NewApp(cfg, gitClient, geminiClient)
+		yawnApp := app.NewApp(cfg, gitClient)
 		if err := yawnApp.Run(); err != nil {
 			log.Fatal(err)
 		}
