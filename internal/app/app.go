@@ -91,6 +91,7 @@ func (a *App) ensureStagedChanges() error {
 			if err := a.GitClient.StageChanges(); err != nil {
 				return fmt.Errorf("failed to stage changes: %w", err)
 			}
+			ui.PrintSuccess("Successfully staged changes.")
 		} else {
 			// Prompt user to stage changes
 			if !ui.AskYesNo("You have unstaged changes. Would you like to stage them?", true) {
@@ -99,6 +100,7 @@ func (a *App) ensureStagedChanges() error {
 			if err := a.GitClient.StageChanges(); err != nil {
 				return fmt.Errorf("failed to stage changes: %w", err)
 			}
+			ui.PrintSuccess("Successfully staged changes.")
 		}
 	}
 
@@ -162,13 +164,14 @@ func (a *App) generateAndCommitChanges(ctx context.Context) error {
 	}
 
 	// Display the generated message
-	fmt.Println("Generated commit message:")
+	ui.PrintInfo("Generated commit message:")
 	fmt.Println(message)
 
 	// Commit changes
 	if err := a.GitClient.Commit(message); err != nil {
 		return fmt.Errorf("failed to commit changes: %w", err)
 	}
+	ui.PrintSuccess("Successfully committed changes.")
 
 	return nil
 }
@@ -210,6 +213,7 @@ func (a *App) handlePushOperation() error {
 	}
 
 	// Report success and repository link if available
+	ui.PrintSuccess("Successfully pushed changes.")
 	if result.RepoLink != "" {
 		fmt.Fprintf(os.Stderr, "View your repository: %s\n", result.RepoLink)
 	}

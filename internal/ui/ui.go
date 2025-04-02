@@ -41,10 +41,8 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 	result := defaultYes
 	if input != "" {
 		result = input == "y" || input == "yes"
-		// Clear the prompt line, ensuring we handle any potential wrapping due to color codes
-		if term.IsTerminal(int(os.Stdout.Fd())) {
-			fmt.Print("\033[1A\r\033[K") // Move up one line, carriage return, clear line
-		}
+
+		ClearLine()
 	}
 
 	return result
@@ -61,10 +59,7 @@ func AskForInput(prompt string, required bool) string {
 		input = strings.TrimSpace(input)
 
 		if input != "" || !required {
-			// Clear the prompt line, ensuring we handle any potential wrapping due to color codes
-			if term.IsTerminal(int(os.Stdout.Fd())) {
-				fmt.Print("\033[1A\r\033[K") // Move up one line, carriage return, clear line
-			}
+			ClearLine()
 			return input
 		}
 		PrintError("Input cannot be empty.")
