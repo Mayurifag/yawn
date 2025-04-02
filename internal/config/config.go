@@ -541,19 +541,6 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 	// Check if file exists
 	_, statErr := os.Stat(configPath)
 	if os.IsNotExist(statErr) {
-		// Create a map with default values
-		defaults := map[string]interface{}{
-			"gemini_api_key":          apiKey,
-			"gemini_model":            DefaultGeminiModel,
-			"max_tokens":              DefaultMaxTokens,
-			"request_timeout_seconds": DefaultTimeoutSecs,
-			"auto_stage":              DefaultAutoStage,
-			"auto_push":               DefaultAutoPush,
-			"push_command":            DefaultPushCommand,
-			"verbose":                 DefaultVerbose,
-			"prompt":                  DefaultPrompt,
-		}
-
 		// Create a buffer for the TOML content
 		var buf bytes.Buffer
 
@@ -585,12 +572,20 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 		}
 		buf.WriteString("\n")
 
-		// Encode the map to TOML
-		encoder := toml.NewEncoder(&buf)
-		encoder.Indent = ""
-		if err := encoder.Encode(defaults); err != nil {
-			return fmt.Errorf("failed to encode default config: %w", err)
-		}
+		// Write the configuration values manually to ensure proper multiline string formatting
+		buf.WriteString(fmt.Sprintf("gemini_api_key = %q\n", apiKey))
+		buf.WriteString(fmt.Sprintf("gemini_model = %q\n", DefaultGeminiModel))
+		buf.WriteString(fmt.Sprintf("max_tokens = %d\n", DefaultMaxTokens))
+		buf.WriteString(fmt.Sprintf("request_timeout_seconds = %d\n", DefaultTimeoutSecs))
+		buf.WriteString(fmt.Sprintf("auto_stage = %v\n", DefaultAutoStage))
+		buf.WriteString(fmt.Sprintf("auto_push = %v\n", DefaultAutoPush))
+		buf.WriteString(fmt.Sprintf("push_command = %q\n", DefaultPushCommand))
+		buf.WriteString(fmt.Sprintf("verbose = %v\n", DefaultVerbose))
+
+		// Write the multiline prompt using TOML's multiline string syntax
+		buf.WriteString("prompt = '''\n")
+		buf.WriteString(DefaultPrompt)
+		buf.WriteString("\n'''\n")
 
 		configContent = buf.Bytes()
 
@@ -611,12 +606,40 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 		// Update the API key in the map
 		cfgMap["gemini_api_key"] = apiKey
 
-		// Encode the updated map back to TOML
+		// Create a buffer for the updated TOML content
 		var buf bytes.Buffer
-		encoder := toml.NewEncoder(&buf)
-		if err := encoder.Encode(cfgMap); err != nil {
-			return fmt.Errorf("failed to encode updated config: %w", err)
+
+		// Write the configuration values manually to ensure proper multiline string formatting
+		buf.WriteString(fmt.Sprintf("gemini_api_key = %q\n", apiKey))
+		if model, ok := cfgMap["gemini_model"].(string); ok {
+			buf.WriteString(fmt.Sprintf("gemini_model = %q\n", model))
 		}
+		if maxTokens, ok := cfgMap["max_tokens"].(int64); ok {
+			buf.WriteString(fmt.Sprintf("max_tokens = %d\n", maxTokens))
+		}
+		if timeout, ok := cfgMap["request_timeout_seconds"].(int64); ok {
+			buf.WriteString(fmt.Sprintf("request_timeout_seconds = %d\n", timeout))
+		}
+		if autoStage, ok := cfgMap["auto_stage"].(bool); ok {
+			buf.WriteString(fmt.Sprintf("auto_stage = %v\n", autoStage))
+		}
+		if autoPush, ok := cfgMap["auto_push"].(bool); ok {
+			buf.WriteString(fmt.Sprintf("auto_push = %v\n", autoPush))
+		}
+		if pushCommand, ok := cfgMap["push_command"].(string); ok {
+			buf.WriteString(fmt.Sprintf("push_command = %q\n", pushCommand))
+		}
+		if verbose, ok := cfgMap["verbose"].(bool); ok {
+			buf.WriteString(fmt.Sprintf("verbose = %v\n", verbose))
+		}
+
+		// Write the multiline prompt using TOML's multiline string syntax
+		if prompt, ok := cfgMap["prompt"].(string); ok {
+			buf.WriteString("prompt = '''\n")
+			buf.WriteString(prompt)
+			buf.WriteString("\n'''\n")
+		}
+
 		configContent = buf.Bytes()
 
 	} else {
