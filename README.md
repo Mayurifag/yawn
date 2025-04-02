@@ -81,5 +81,6 @@ This project is released into the public domain under The Unlicense. See the [LI
   * I don't know anyone for now, but will add more here probably
 * [ ] Replace EstimateTokenCount implementation in internal/gemini/client.go with calls to c.client.CountTokens(ctx, modelName, genai.Text(text))
 * [ ] Remove verbose mode
+* [ ] Dockerfile -> release it -> add alias to README.md
 
 Actually, I do not plan much features. Project considered as done.

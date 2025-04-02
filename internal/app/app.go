@@ -215,7 +215,8 @@ func (a *App) handlePushOperation() error {
 		return fmt.Errorf("failed to check for remote repositories: %w", err)
 	}
 	if !hasRemotes {
-		return fmt.Errorf("no remote repositories configured. Add one using 'git remote add <n> <url>'")
+		ui.PrintInfo("No remote repositories configured. Push operation will be skipped.")
+		return nil
 	}
 
 	// Execute push command
