@@ -37,6 +37,10 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 	input, _ := reader.ReadString('\n')
 	input = strings.ToLower(strings.TrimSpace(input))
 
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		ClearLine()
+	}
+
 	if input == "" {
 		return defaultYes
 	}
@@ -53,6 +57,9 @@ func AskForInput(prompt string, required bool) string {
 		input = strings.TrimSpace(input)
 
 		if input != "" || !required {
+			if term.IsTerminal(int(os.Stdout.Fd())) {
+				ClearLine()
+			}
 			return input
 		}
 		PrintError("Input cannot be empty.")
