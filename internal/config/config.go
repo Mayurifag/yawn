@@ -418,23 +418,14 @@ func GenerateDefaultConfig() (string, error) {
 	comments := []string{
 		"# Configuration file for yawn - AI Git Commiter using Google Gemini",
 		"#",
-		"# This file can be placed in:",
+		"# This file can be placed in (or both):",
 		"# - ~/.config/yawn/config.toml (user config)",
-		"# - ./.yawn.toml (project config)",
+		"# - ./.yawn.toml (project config, you might want to add this to your .gitignore)",
 		"#",
-		"# Environment variables (YAWN_*) take precedence over this file",
-		"# Command line flags take precedence over environment variables",
-		"#",
-		"# Model configuration",
-		"#",
-		"# Git workflow configuration",
+		"# Precedence order: command line flags > environment variables > project config > user config",
 		"#",
 		"# When auto_stage is true, all unstaged changes will be automatically staged",
 		"# When auto_stage is false and there are unstaged changes, you will be prompted to stage them",
-		"#",
-		"# Logging configuration",
-		"#",
-		"# Custom prompt for commit message generation",
 	}
 
 	for _, comment := range comments {
@@ -550,31 +541,58 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 	// Check if file exists
 	_, statErr := os.Stat(configPath)
 	if os.IsNotExist(statErr) {
-		// --- Create NEW config file using GenerateDefaultConfig format ---
-		defaultToml, genErr := GenerateDefaultConfig()
-		if genErr != nil {
-			return fmt.Errorf("failed to generate default config content: %w", genErr)
+		// Create a map with default values
+		defaults := map[string]interface{}{
+			"gemini_api_key":          apiKey,
+			"gemini_model":            DefaultGeminiModel,
+			"max_tokens":              DefaultMaxTokens,
+			"request_timeout_seconds": DefaultTimeoutSecs,
+			"auto_stage":              DefaultAutoStage,
+			"auto_push":               DefaultAutoPush,
+			"push_command":            DefaultPushCommand,
+			"verbose":                 DefaultVerbose,
+			"prompt":                  DefaultPrompt,
 		}
 
-		// Replace the placeholder API key line using a more robust method
-		lines := strings.Split(defaultToml, "\n")
-		found := false
-		for i, line := range lines {
-			trimmedLine := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmedLine, `gemini_api_key =`) {
-				lines[i] = fmt.Sprintf(`gemini_api_key = %q`, apiKey)
-				found = true
-				break
-			}
+		// Create a buffer for the TOML content
+		var buf bytes.Buffer
+
+		// Write comments first
+		comments := []string{
+			"# Configuration file for yawn - AI Git Commiter using Google Gemini",
+			"#",
+			"# This file can be placed in:",
+			"# - ~/.config/yawn/config.toml (user config)",
+			"# - ./.yawn.toml (project config)",
+			"#",
+			"# Environment variables (YAWN_*) take precedence over this file",
+			"# Command line flags take precedence over environment variables",
+			"#",
+			"# Model configuration",
+			"#",
+			"# Git workflow configuration",
+			"#",
+			"# When auto_stage is true, all unstaged changes will be automatically staged",
+			"# When auto_stage is false and there are unstaged changes, you will be prompted to stage them",
+			"#",
+			"# Logging configuration",
+			"#",
+			"# Custom prompt for commit message generation",
 		}
 
-		if !found {
-			// Fallback if placeholder format changes: prepend the key if not found
-			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: API key placeholder line not found in generated config, prepending key.\n")
-			configContent = []byte(fmt.Sprintf("gemini_api_key = %q\n\n%s", apiKey, defaultToml))
-		} else {
-			configContent = []byte(strings.Join(lines, "\n"))
+		for _, comment := range comments {
+			buf.WriteString(comment + "\n")
 		}
+		buf.WriteString("\n")
+
+		// Encode the map to TOML
+		encoder := toml.NewEncoder(&buf)
+		encoder.Indent = ""
+		if err := encoder.Encode(defaults); err != nil {
+			return fmt.Errorf("failed to encode default config: %w", err)
+		}
+
+		configContent = buf.Bytes()
 
 	} else if statErr == nil {
 		// --- UPDATE existing config file ---
@@ -585,10 +603,8 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 		}
 
 		// Decode into a generic map to preserve structure and comments as much as possible
-		// Note: BurntSushi/toml doesn't perfectly preserve comments on encode, but it preserves structure.
 		var cfgMap map[string]interface{}
 		if _, err := toml.Decode(string(existingContent), &cfgMap); err != nil {
-			// If decoding fails, maybe the file is corrupt? Overwrite might be an option, but safer to error out.
 			return fmt.Errorf("failed to decode existing config file %s for update: %w. Please check the file format", configPath, err)
 		}
 
@@ -598,8 +614,6 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 		// Encode the updated map back to TOML
 		var buf bytes.Buffer
 		encoder := toml.NewEncoder(&buf)
-		// Try to preserve indentation if possible (though often defaults are fine)
-		// encoder.Indent = "    " // Example: 4 spaces
 		if err := encoder.Encode(cfgMap); err != nil {
 			return fmt.Errorf("failed to encode updated config: %w", err)
 		}
