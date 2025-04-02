@@ -32,7 +32,8 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 		hint = "[y/N]"
 	}
 
-	fmt.Printf("%s %s %s ", promptPrefix, prompt, hint)
+	// Ensure the prompt is correctly colored with the promptPrefix
+	fmt.Printf("%s%s %s ", promptPrefix, prompt, hint)
 
 	input, _ := reader.ReadString('\n')
 	input = strings.ToLower(strings.TrimSpace(input))
@@ -42,6 +43,7 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 		result = input == "y" || input == "yes"
 	}
 
+	// Clear the prompt line, ensuring we handle any potential wrapping due to color codes
 	if term.IsTerminal(int(os.Stdout.Fd())) {
 		fmt.Print("\033[1A\r\033[K") // Move up one line, carriage return, clear line
 	}
@@ -53,12 +55,14 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 // If required is true, it will loop until non-empty input is received.
 func AskForInput(prompt string, required bool) string {
 	for {
-		fmt.Printf("%s %s ", promptPrefix, prompt)
+		// Ensure the prompt is correctly colored with the promptPrefix
+		fmt.Printf("%s%s ", promptPrefix, prompt)
 
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
 
 		if input != "" || !required {
+			// Clear the prompt line, ensuring we handle any potential wrapping due to color codes
 			if term.IsTerminal(int(os.Stdout.Fd())) {
 				fmt.Print("\033[1A\r\033[K") // Move up one line, carriage return, clear line
 			}
