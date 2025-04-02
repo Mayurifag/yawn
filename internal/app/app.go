@@ -72,34 +72,7 @@ func (a *App) setupAndCheckPrerequisites() (bool, error) {
 // Otherwise, prompts the user to stage changes if needed.
 // Returns an error if staging fails or is declined when required.
 func (a *App) ensureStagedChanges() error {
-	hasStaged, err := a.GitClient.HasStagedChanges()
-	if err != nil {
-		return fmt.Errorf("failed to check for staged changes: %w", err)
-	}
-
-	if a.Config.Verbose {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Has staged changes: %v\n", hasStaged)
-	}
-
-	if hasStaged {
-		if a.Config.Verbose {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Already have staged changes, skipping staging prompt\n")
-		}
-		return nil // Already staged, nothing to do
-	}
-
-	if a.Config.AutoStage {
-		if a.Config.Verbose {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Auto-staging enabled, staging all changes\n")
-		}
-		// Auto-stage all changes
-		if err := a.GitClient.StageChanges(); err != nil {
-			return fmt.Errorf("failed to stage changes: %w", err)
-		}
-		return nil
-	}
-
-	// Prompt user to stage changes
+	// First check for unstaged changes
 	hasUnstaged, err := a.GitClient.HasUnstagedChanges()
 	if err != nil {
 		return fmt.Errorf("failed to check for unstaged changes: %w", err)
@@ -110,16 +83,37 @@ func (a *App) ensureStagedChanges() error {
 	}
 
 	if hasUnstaged {
-		if !ui.AskYesNo("You have unstaged changes. Would you like to stage them?", true) {
-			return fmt.Errorf("staging required to proceed")
+		// Handle unstaged changes based on AutoStage setting
+		if a.Config.AutoStage {
+			if a.Config.Verbose {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Auto-staging enabled, staging all changes\n")
+			}
+			if err := a.GitClient.StageChanges(); err != nil {
+				return fmt.Errorf("failed to stage changes: %w", err)
+			}
+		} else {
+			// Prompt user to stage changes
+			if !ui.AskYesNo("You have unstaged changes. Would you like to stage them?", true) {
+				return fmt.Errorf("staging required to proceed")
+			}
+			if err := a.GitClient.StageChanges(); err != nil {
+				return fmt.Errorf("failed to stage changes: %w", err)
+			}
 		}
-		if err := a.GitClient.StageChanges(); err != nil {
-			return fmt.Errorf("failed to stage changes: %w", err)
-		}
-	} else {
-		// We've already checked for staged changes above, and now we find no unstaged changes
-		// This means there are no changes at all to commit
-		return fmt.Errorf("no changes to commit - nothing is staged or unstaged")
+	}
+
+	// Verify we have staged changes after potential staging
+	hasStaged, err := a.GitClient.HasStagedChanges()
+	if err != nil {
+		return fmt.Errorf("failed to check for staged changes: %w", err)
+	}
+
+	if a.Config.Verbose {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Has staged changes: %v\n", hasStaged)
+	}
+
+	if !hasStaged {
+		return fmt.Errorf("You have no changes to commit!")
 	}
 
 	return nil
