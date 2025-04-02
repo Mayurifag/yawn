@@ -21,7 +21,7 @@ const (
 	DefaultGeminiModel = "gemini-2.0-flash-lite"
 	DefaultMaxTokens   = 1000000
 	DefaultTimeoutSecs = 10
-	DefaultAskStage    = true
+	DefaultAutoStage   = false
 	DefaultAutoPush    = false
 	DefaultPushCommand = "git push origin HEAD"
 	DefaultVerbose     = false
@@ -33,7 +33,7 @@ const (
 - Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line
 - Do not use formatting for output, just the commit message itself. Don't use ticks or other formatting symbols, only text of commit, no commentaries after or before message.
 
-The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in RFC 2119.
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
 
 Commits MUST be prefixed with a type, which consists of a noun, feat, fix, etc., followed by the OPTIONAL scope, OPTIONAL !, and REQUIRED terminal colon and space.
 
@@ -51,9 +51,9 @@ A commit body is free-form and MAY consist of any number of newline separated pa
 
 One or more footers MAY be provided one blank line after the body. Each footer MUST consist of a word token, followed by either :<space> or <space>#, followed by a string value (this is inspired by the git trailer convention).
 
-A footer’s token MUST use - in place of whitespace characters, e.g., Acked-by (this helps differentiate the footer section from a multi-paragraph body). An exception is made for BREAKING CHANGE, which MAY also be used as a token.
+A footer's token MUST use - in place of whitespace characters, e.g., Acked-by (this helps differentiate the footer section from a multi-paragraph body). An exception is made for BREAKING CHANGE, which MAY also be used as a token.
 
-A footer’s value MAY contain spaces and newlines, and parsing MUST terminate when the next valid footer token/separator pair is observed.
+A footer's value MAY contain spaces and newlines, and parsing MUST terminate when the next valid footer token/separator pair is observed.
 
 Breaking changes MUST be indicated in the type/scope prefix of a commit, or as an entry in the footer.
 
@@ -95,16 +95,15 @@ Here is the diff to analyze:
 
 // Config holds the application configuration. Fields must be exported for TOML decoding.
 type Config struct {
-	GeminiAPIKey          string   `toml:"gemini_api_key"`
-	GeminiModel           string   `toml:"gemini_model"`
-	MaxTokens             int      `toml:"max_tokens"`
-	RequestTimeoutSeconds int      `toml:"request_timeout_seconds"`
-	Prompt                string   `toml:"prompt,multiline"`
-	IgnorePatterns        []string `toml:"ignore_patterns"`
-	AskStage              bool     `toml:"ask_stage"`
-	AutoPush              bool     `toml:"auto_push"`
-	PushCommand           string   `toml:"push_command"`
-	Verbose               bool     `toml:"verbose"`
+	GeminiAPIKey          string `toml:"gemini_api_key"`
+	GeminiModel           string `toml:"gemini_model"`
+	MaxTokens             int    `toml:"max_tokens"`
+	RequestTimeoutSeconds int    `toml:"request_timeout_seconds"`
+	Prompt                string `toml:"prompt,multiline"`
+	AutoStage             bool   `toml:"auto_stage"`
+	AutoPush              bool   `toml:"auto_push"`
+	PushCommand           string `toml:"push_command"`
+	Verbose               bool   `toml:"verbose"`
 
 	// Internal fields to track config sources
 	sources map[string]string `toml:"-"` // Key: field name, Value: source (default, user, project, env, flag)
@@ -112,7 +111,7 @@ type Config struct {
 
 // LoadConfig loads configuration from defaults, user file, project file, and environment variables.
 // It returns the merged configuration and an error if any occurs during loading.
-func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, noStageFlag bool, autoPushFlag bool) (Config, error) {
+func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) (Config, error) {
 	cfg := defaultConfig()
 	cfg.sources = make(map[string]string)
 	for k := range toMap(cfg) {
@@ -165,9 +164,9 @@ func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, noStage
 		cfg.GeminiAPIKey = apiKeyFlag
 		cfg.sources["GeminiAPIKey"] = "flag"
 	}
-	if noStageFlag {
-		cfg.AskStage = false // --no-stage overrides config/env to disable asking
-		cfg.sources["AskStage"] = "flag"
+	if autoStageFlag {
+		cfg.AutoStage = true // --auto-stage overrides config/env to enable auto stage
+		cfg.sources["AutoStage"] = "flag"
 	}
 	if autoPushFlag {
 		cfg.AutoPush = true // --auto-push overrides config/env to enable auto push
@@ -205,8 +204,7 @@ func defaultConfig() Config {
 		MaxTokens:             DefaultMaxTokens,
 		RequestTimeoutSeconds: DefaultTimeoutSecs,
 		Prompt:                DefaultPrompt,
-		IgnorePatterns:        []string{},
-		AskStage:              DefaultAskStage,
+		AutoStage:             DefaultAutoStage,
 		AutoPush:              DefaultAutoPush,
 		PushCommand:           DefaultPushCommand,
 		Verbose:               DefaultVerbose,
@@ -240,109 +238,93 @@ func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, sour
 		baseCfg.Prompt = loadedCfg.Prompt
 		baseCfg.sources["Prompt"] = source
 	}
-	// For slices, replace if defined (toml decoder might make empty slice vs nil)
-	if metadata.IsDefined("ignore_patterns") {
-		baseCfg.IgnorePatterns = loadedCfg.IgnorePatterns // Replace even if empty list in file
-		baseCfg.sources["IgnorePatterns"] = source
-	}
 	// Booleans need explicit check if they were defined in the file.
-	if metadata.IsDefined("ask_stage") {
-		baseCfg.AskStage = loadedCfg.AskStage
-		baseCfg.sources["AskStage"] = source
+	if metadata.IsDefined("auto_stage") {
+		baseCfg.AutoStage = loadedCfg.AutoStage
+		baseCfg.sources["AutoStage"] = source
 	}
 	if metadata.IsDefined("auto_push") {
 		baseCfg.AutoPush = loadedCfg.AutoPush
 		baseCfg.sources["AutoPush"] = source
 	}
-	if metadata.IsDefined("verbose") {
-		baseCfg.Verbose = loadedCfg.Verbose
-		baseCfg.sources["Verbose"] = source
-	}
 	if metadata.IsDefined("push_command") && loadedCfg.PushCommand != "" {
 		baseCfg.PushCommand = loadedCfg.PushCommand
 		baseCfg.sources["PushCommand"] = source
 	}
+	if metadata.IsDefined("verbose") {
+		baseCfg.Verbose = loadedCfg.Verbose
+		baseCfg.sources["Verbose"] = source
+	}
 }
 
 func loadConfigFromEnv(cfg *Config) {
-	source := "env"
-	// String values
-	if val, ok := os.LookupEnv(EnvPrefix + "GEMINI_API_KEY"); ok {
-		cfg.GeminiAPIKey = val
-		cfg.sources["GeminiAPIKey"] = source
-	}
-	if val, ok := os.LookupEnv(EnvPrefix + "GEMINI_MODEL"); ok {
-		cfg.GeminiModel = val
-		cfg.sources["GeminiModel"] = source
-	}
-	if val, ok := os.LookupEnv(EnvPrefix + "PROMPT"); ok {
-		// Handle potential escaped newlines from env var
-		val = strings.ReplaceAll(val, "\\n", "\n")
-		cfg.Prompt = val
-		cfg.sources["Prompt"] = source
-	}
-	if val, ok := os.LookupEnv(EnvPrefix + "PUSH_COMMAND"); ok {
-		cfg.PushCommand = val
-		cfg.sources["PushCommand"] = source
-	}
-	if val, ok := os.LookupEnv(EnvPrefix + "IGNORE_PATTERNS"); ok {
-		patterns := strings.Split(val, ",")
-		// Trim whitespace from each pattern
-		validPatterns := make([]string, 0, len(patterns))
-		for _, p := range patterns {
-			trimmed := strings.TrimSpace(p)
-			if trimmed != "" {
-				validPatterns = append(validPatterns, trimmed)
-			}
-		}
-		if len(validPatterns) > 0 { // Only override if env var is not empty/just commas
-			cfg.IgnorePatterns = validPatterns
-			cfg.sources["IgnorePatterns"] = source
-		}
+	// Helper to get env var with prefix
+	getEnv := func(key string) string {
+		return os.Getenv(EnvPrefix + key)
 	}
 
-	// Integer values
-	if val, ok := os.LookupEnv(EnvPrefix + "MAX_TOKENS"); ok {
-		if intVal, err := strconv.Atoi(val); err == nil && intVal > 0 { // Ensure positive value
-			cfg.MaxTokens = intVal
-			cfg.sources["MaxTokens"] = source
-		} else if cfg.Verbose { // Check verbosity *after* potential env override
-			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Invalid integer value for %sMAX_TOKENS: %s\n", EnvPrefix, val)
+	// Helper to get bool env var
+	getBoolEnv := func(key string) (bool, bool) {
+		val := getEnv(key)
+		if val == "" {
+			return false, false
 		}
-	}
-	if val, ok := os.LookupEnv(EnvPrefix + "REQUEST_TIMEOUT_SECONDS"); ok {
-		if intVal, err := strconv.Atoi(val); err == nil && intVal > 0 {
-			cfg.RequestTimeoutSeconds = intVal
-			cfg.sources["RequestTimeoutSeconds"] = source
-		} else if cfg.Verbose {
-			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Invalid integer value for %sREQUEST_TIMEOUT_SECONDS: %s\n", EnvPrefix, val)
+		b, err := strconv.ParseBool(val)
+		if err != nil {
+			return false, false
 		}
+		return b, true
 	}
 
-	// Boolean values
-	if val, ok := os.LookupEnv(EnvPrefix + "ASK_STAGE"); ok {
-		if boolVal, err := strconv.ParseBool(val); err == nil {
-			cfg.AskStage = boolVal
-			cfg.sources["AskStage"] = source
-		} else if cfg.Verbose {
-			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Invalid boolean value for %sASK_STAGE: %s\n", EnvPrefix, val)
+	// Helper to get int env var
+	getIntEnv := func(key string) (int, bool) {
+		val := getEnv(key)
+		if val == "" {
+			return 0, false
 		}
+		i, err := strconv.Atoi(val)
+		if err != nil {
+			return 0, false
+		}
+		return i, true
 	}
-	if val, ok := os.LookupEnv(EnvPrefix + "AUTO_PUSH"); ok {
-		if boolVal, err := strconv.ParseBool(val); err == nil {
-			cfg.AutoPush = boolVal
-			cfg.sources["AutoPush"] = source
-		} else if cfg.Verbose {
-			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Invalid boolean value for %sAUTO_PUSH: %s\n", EnvPrefix, val)
-		}
+
+	// Load from environment variables
+	if apiKey := getEnv("GEMINI_API_KEY"); apiKey != "" {
+		cfg.GeminiAPIKey = apiKey
+		cfg.sources["GeminiAPIKey"] = "env"
 	}
-	if val, ok := os.LookupEnv(EnvPrefix + "VERBOSE"); ok {
-		if boolVal, err := strconv.ParseBool(val); err == nil {
-			cfg.Verbose = boolVal
-			cfg.sources["Verbose"] = source
-		} else if cfg.Verbose { // Check cfg.Verbose because this might be the var enabling it
-			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Invalid boolean value for %sVERBOSE: %s\n", EnvPrefix, val)
-		}
+	if model := getEnv("GEMINI_MODEL"); model != "" {
+		cfg.GeminiModel = model
+		cfg.sources["GeminiModel"] = "env"
+	}
+	if maxTokens, ok := getIntEnv("MAX_TOKENS"); ok {
+		cfg.MaxTokens = maxTokens
+		cfg.sources["MaxTokens"] = "env"
+	}
+	if timeout, ok := getIntEnv("REQUEST_TIMEOUT_SECONDS"); ok {
+		cfg.RequestTimeoutSeconds = timeout
+		cfg.sources["RequestTimeoutSeconds"] = "env"
+	}
+	if prompt := getEnv("PROMPT"); prompt != "" {
+		cfg.Prompt = prompt
+		cfg.sources["Prompt"] = "env"
+	}
+	if autoStage, ok := getBoolEnv("AUTO_STAGE"); ok {
+		cfg.AutoStage = autoStage
+		cfg.sources["AutoStage"] = "env"
+	}
+	if autoPush, ok := getBoolEnv("AUTO_PUSH"); ok {
+		cfg.AutoPush = autoPush
+		cfg.sources["AutoPush"] = "env"
+	}
+	if pushCommand := getEnv("PUSH_COMMAND"); pushCommand != "" {
+		cfg.PushCommand = pushCommand
+		cfg.sources["PushCommand"] = "env"
+	}
+	if verbose, ok := getBoolEnv("VERBOSE"); ok {
+		cfg.Verbose = verbose
+		cfg.sources["Verbose"] = "env"
 	}
 }
 
@@ -415,82 +397,57 @@ func (c Config) GetRequestTimeout() time.Duration {
 // GenerateDefaultConfig returns the default configuration as a TOML string
 // with comments and proper formatting.
 func GenerateDefaultConfig() (string, error) {
-	cfg := defaultConfig()
-	var builder strings.Builder
+	var buf bytes.Buffer
+	encoder := toml.NewEncoder(&buf)
+	encoder.Indent = ""
 
-	builder.WriteString("# " + AppName + " Configuration File (`~/.config/yawn/config.toml` or `./.yawn.toml`)\n")
-	builder.WriteString("# Generated by 'yawn --generate-config'\n\n")
-
-	builder.WriteString("# Gemini API Key. REQUIRED.\n")
-	builder.WriteString("# Get one from Google AI Studio: https://aistudio.google.com/app/apikey\n")
-	builder.WriteString("# Can also be set via YAWN_GEMINI_API_KEY environment variable.\n")
-	builder.WriteString(`gemini_api_key = "" # <-- Add your key here or set ENV var` + "\n\n")
-
-	builder.WriteString("# Gemini model to use for generating commit messages.\n")
-	builder.WriteString("# See available models: https://ai.google.dev/models/gemini\n")
-	builder.WriteString(fmt.Sprintf("gemini_model = %q\n\n", cfg.GeminiModel))
-
-	builder.WriteString("# Maximum number of tokens (input + output) allowed for the Gemini request.\n")
-	builder.WriteString("# Helps prevent excessive costs and errors for large diffs.\n")
-	builder.WriteString("# Models like Flash have large context windows (e.g., 1M tokens), but limiting can save costs.\n")
-	builder.WriteString("# Estimate: ~4 chars/token. Diff + Prompt + Output must be <= max_tokens.\n")
-	builder.WriteString(fmt.Sprintf("max_tokens = %d\n\n", cfg.MaxTokens))
-
-	builder.WriteString("# Request timeout in seconds when calling the Gemini API.\n")
-	builder.WriteString("# Increase if you have large diffs or slow network.\n")
-	builder.WriteString(fmt.Sprintf("request_timeout_seconds = %d\n\n", cfg.RequestTimeoutSeconds))
-
-	builder.WriteString("# Prompt template sent to Gemini.\n")
-	builder.WriteString("# Use {{Diff}} as the placeholder for the git diff.\n")
-	builder.WriteString("# Ensure the prompt guides the AI towards the desired commit message format (e.g., Conventional Commits).\n")
-	// Use %q with backticks for multi-line string literal representation in Go source
-	// but write it out with ''' for the TOML file. Ensure the prompt string itself doesn't contain '''
-	tomlPrompt := strings.ReplaceAll(cfg.Prompt, "'''", `''"`) // Basic escaping if needed
-	builder.WriteString(fmt.Sprintf("prompt = '''\n%s\n'''\n\n", tomlPrompt))
-
-	builder.WriteString("# List of glob patterns for files/paths to exclude from the diff sent to the AI.\n")
-	builder.WriteString("# Uses git's pathspec matching (e.g., '*.log', 'dist/', ':(exclude)vendor/**').\n")
-	builder.WriteString("# See: https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec\n")
-	builder.WriteString(fmt.Sprintf("ignore_patterns = %s\n\n", formatStringSlice(cfg.IgnorePatterns)))
-
-	builder.WriteString("# If true and no changes are staged, ask interactively whether to stage all changes (`git add -A`).\n")
-	builder.WriteString("# If false, proceed only if changes are already staged (or fail if none).\n")
-	builder.WriteString("# Can be overridden by the --no-stage flag (sets ask_stage=false for that run).\n")
-	builder.WriteString(fmt.Sprintf("ask_stage = %t\n\n", cfg.AskStage))
-
-	builder.WriteString("# If true, automatically push the commit after it's successfully created using 'push_command'.\n")
-	builder.WriteString("# If false, ask the user for confirmation before pushing.\n")
-	builder.WriteString("# Can be overridden by the --auto-push flag (sets auto_push=true for that run).\n")
-	builder.WriteString(fmt.Sprintf("auto_push = %t\n\n", cfg.AutoPush))
-
-	builder.WriteString("# The exact command used to push the commit when auto_push is true or confirmed interactively.\n")
-	builder.WriteString("# Examples: \"git push\", \"git push --no-verify\", \"git push origin main\"\n")
-	builder.WriteString(fmt.Sprintf("push_command = %q\n\n", cfg.PushCommand))
-
-	builder.WriteString("# Enable verbose logging output.\n")
-	builder.WriteString("# Shows config loading details, git commands being run, etc.\n")
-	builder.WriteString("# Can be overridden by the --verbose flag or YAWN_VERBOSE=true env var.\n")
-	builder.WriteString(fmt.Sprintf("verbose = %t\n", cfg.Verbose))
-
-	return builder.String(), nil
-}
-
-// formatStringSlice formats a slice of strings for TOML array output.
-func formatStringSlice(slice []string) string {
-	if len(slice) == 0 {
-		return "[]"
+	// Create a map with default values
+	defaults := map[string]interface{}{
+		"gemini_api_key":          "", // No default, must be provided
+		"gemini_model":            DefaultGeminiModel,
+		"max_tokens":              DefaultMaxTokens,
+		"request_timeout_seconds": DefaultTimeoutSecs,
+		"auto_stage":              DefaultAutoStage,
+		"auto_push":               DefaultAutoPush,
+		"push_command":            DefaultPushCommand,
+		"verbose":                 DefaultVerbose,
+		"prompt":                  DefaultPrompt,
 	}
-	var sb strings.Builder
-	sb.WriteString("[")
-	for i, s := range slice {
-		// Use %q to ensure proper quoting and escaping within the string literal
-		sb.WriteString(fmt.Sprintf("%q", s))
-		if i < len(slice)-1 {
-			sb.WriteString(", ")
-		}
+
+	// Write comments before encoding
+	comments := []string{
+		"# Configuration file for yawn - AI Git Commiter using Google Gemini",
+		"#",
+		"# This file can be placed in:",
+		"# - ~/.config/yawn/config.toml (user config)",
+		"# - ./.yawn.toml (project config)",
+		"#",
+		"# Environment variables (YAWN_*) take precedence over this file",
+		"# Command line flags take precedence over environment variables",
+		"#",
+		"# Model configuration",
+		"#",
+		"# Git workflow configuration",
+		"#",
+		"# When auto_stage is true, all unstaged changes will be automatically staged",
+		"# When auto_stage is false and there are unstaged changes, you will be prompted to stage them",
+		"#",
+		"# Logging configuration",
+		"#",
+		"# Custom prompt for commit message generation",
 	}
-	sb.WriteString("]")
-	return sb.String()
+
+	for _, comment := range comments {
+		buf.WriteString(comment + "\n")
+	}
+	buf.WriteString("\n")
+
+	err := encoder.Encode(defaults)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode default config: %w", err)
+	}
+
+	return buf.String(), nil
 }
 
 // --- Helper for logging sources ---
@@ -498,17 +455,13 @@ func formatStringSlice(slice []string) string {
 // toMap converts Config struct to a map[string]interface{} for easier processing.
 // This is basic; reflection would be more robust but adds complexity.
 func toMap(c Config) map[string]interface{} {
-	// Convert slice to string for simpler display if needed, or handle slice display
-	ignorePatternsStr := formatStringSlice(c.IgnorePatterns) // Use TOML-like format
-
 	return map[string]interface{}{
-		"GeminiAPIKey":          c.GeminiAPIKey, // Will be masked below
+		"GeminiAPIKey":          c.GeminiAPIKey,
 		"GeminiModel":           c.GeminiModel,
 		"MaxTokens":             c.MaxTokens,
 		"RequestTimeoutSeconds": c.RequestTimeoutSeconds,
-		"Prompt":                c.Prompt, // Will be truncated below
-		"IgnorePatterns":        ignorePatternsStr,
-		"AskStage":              c.AskStage,
+		"Prompt":                c.Prompt,
+		"AutoStage":             c.AutoStage,
 		"AutoPush":              c.AutoPush,
 		"PushCommand":           c.PushCommand,
 		"Verbose":               c.Verbose,
@@ -524,7 +477,7 @@ func logConfigSources(cfg Config) {
 	// Define desired order
 	orderedKeys := []string{
 		"GeminiAPIKey", "GeminiModel", "MaxTokens", "RequestTimeoutSeconds",
-		"Prompt", "IgnorePatterns", "AskStage", "AutoPush", "PushCommand", "Verbose",
+		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose",
 	}
 	// Use ordered keys if they exist in sources
 	processedKeys := make(map[string]bool)
@@ -570,9 +523,6 @@ func logConfigSources(cfg Config) {
 			} else {
 				valueStr = fmt.Sprintf("%q", firstLine) // Quote the single line
 			}
-		case "IgnorePatterns":
-			// Already formatted as TOML-like string in toMap
-			valueStr = configMap[key].(string)
 		}
 
 		// Simple alignment

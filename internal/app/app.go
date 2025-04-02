@@ -78,62 +78,71 @@ func (a *App) Run(ctx context.Context) error {
 		ui.PrintInfo("Uncommitted changes detected.")
 	}
 
-	// 3. Handle Staging
-	// Check if staging is enabled and if there are no staged changes already
-	if a.Config.AskStage {
-		staged, err := a.GitClient.HasStagedChanges()
-		if err != nil {
-			// Log warning but proceed? Or halt? Let's halt for safety.
-			ui.PrintError(fmt.Sprintf("Failed to check for staged changes: %v", err))
-			return err
-		}
-		if !staged {
-			if a.Config.Verbose {
-				ui.PrintInfo("No changes staged. Checking if staging is needed/requested.")
-			}
-			if ui.AskYesNo("You have uncommitted changes. Stage them first?", false) { // Default No
-				if a.Config.Verbose {
-					ui.PrintInfo("Staging changes...")
-				}
-				err := a.GitClient.StageChanges()
-				if err != nil {
-					ui.PrintError(fmt.Sprintf("Failed to stage changes: %v", err))
-					return err
-				}
-				ui.PrintSuccess("Changes staged successfully.")
-				ui.PrintInfo("Your changes have been staged and are ready to commit.")
-				// Continue with the flow since we want to commit the staged changes
-			}
-			// If user chooses not to stage, continue with the uncommitted changes
-		} else {
-			if a.Config.Verbose {
-				ui.PrintInfo("Changes already staged. Proceeding with commit.")
-			}
-		}
-	} else if a.Config.Verbose {
-		ui.PrintInfo("Stage check/prompt is disabled via config or flag.")
+	// 3. Check for staged changes
+	hasStaged, err := a.GitClient.HasStagedChanges()
+	if err != nil {
+		ui.PrintError(fmt.Sprintf("Failed to check for staged changes: %v", err))
+		return err
 	}
 
-	// 4. Get Git Diff
-	if a.Config.Verbose {
-		ui.PrintInfo(fmt.Sprintf("Getting git diff (ignoring %v)...", a.Config.IgnorePatterns))
+	// 4. Handle staging if needed
+	if !hasStaged {
+		if a.Config.Verbose {
+			ui.PrintInfo("No changes staged. Checking if staging is needed/requested.")
+		}
+
+		if a.Config.AutoStage {
+			if a.Config.Verbose {
+				ui.PrintInfo("Auto-staging all changes...")
+			}
+			err := a.GitClient.StageChanges()
+			if err != nil {
+				ui.PrintError(fmt.Sprintf("Failed to stage changes: %v", err))
+				return err
+			}
+			ui.PrintSuccess("All changes staged successfully.")
+		} else {
+			if !ui.AskYesNo("Would you like to stage all changes for commit? (This will run 'git add -A')", false) { // Default No
+				ui.PrintInfo("Staging declined.")
+				ui.PrintInfo("To stage changes, either:")
+				ui.PrintInfo("  1. Stage changes manually using 'git add'")
+				ui.PrintInfo("  2. Run yawn again and choose to stage changes")
+				return nil
+			}
+
+			if a.Config.Verbose {
+				ui.PrintInfo("Staging all changes...")
+			}
+			err := a.GitClient.StageChanges()
+			if err != nil {
+				ui.PrintError(fmt.Sprintf("Failed to stage changes: %v", err))
+				return err
+			}
+			ui.PrintSuccess("All changes staged successfully.")
+		}
+		ui.PrintInfo("Your changes are now staged and ready to commit.")
+	} else if a.Config.Verbose {
+		ui.PrintInfo("Changes already staged. Proceeding with commit.")
 	}
-	diff, err := a.GitClient.GetDiff(a.Config.IgnorePatterns)
+
+	// 5. Get Git Diff
+	if a.Config.Verbose {
+		ui.PrintInfo("Getting diff of staged changes...")
+	}
+	diff, err := a.GitClient.GetDiff()
 	if err != nil {
 		ui.PrintError(fmt.Sprintf("Failed to get git diff: %v", err))
 		return err
 	}
 	if diff == "" {
-		ui.PrintInfo("No changes detected after applying ignore patterns. Nothing to commit.")
+		ui.PrintInfo("No staged changes detected. Nothing to commit.")
 		return nil
 	}
 	if a.Config.Verbose {
-		ui.PrintInfo("Diff obtained successfully.")
-		// Maybe print the diff if super verbose? For now, no.
-		// fmt.Fprintf(os.Stderr, "[DEBUG] Diff:\n%s\n", diff)
+		ui.PrintInfo("Diff of staged changes obtained successfully.")
 	}
 
-	// 5. Generate Commit Message
+	// 6. Generate Commit Message
 	ui.PrintInfo("Generating commit message with Gemini...")
 	spinner := ui.StartSpinner("Waiting for AI")
 	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
@@ -170,9 +179,9 @@ func (a *App) Run(ctx context.Context) error {
 	fmt.Println(commitMessage)
 	fmt.Println("---")
 
-	// 6. Commit
+	// 7. Commit
 	if a.Config.Verbose {
-		ui.PrintInfo("Committing changes...")
+		ui.PrintInfo("Creating commit with generated message...")
 	}
 	err = a.GitClient.Commit(commitMessage)
 	if err != nil {
@@ -181,10 +190,10 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	ui.PrintSuccess("Changes committed successfully.")
 
-	// 7. Push
+	// 8. Push
 	shouldPush := a.Config.AutoPush
 	if !shouldPush {
-		if ui.AskYesNo(fmt.Sprintf("Push changes now? (using: %s)", a.Config.PushCommand), false) { // Default No
+		if ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), false) { // Default No
 			shouldPush = true
 		}
 	}

@@ -17,7 +17,6 @@ But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customiza
 
 *   Tweak the AI prompt or use different Gemini model? ✅
 *   Automatically stage changes, commit and push? ✅
-*   Ignore specific files in the diff for the AI besides the .gitignore? ✅
 *   Override defaults using environment variables or additional parameters? ✅
 *   Override config per project? ✅
 *   Avoid Gemini API limits? ✅
@@ -54,7 +53,6 @@ Want to tweak things? `yawn` is flexible!
     *   `ask_stage`: Set to `false` to never stage automatically.
     *   `auto_push`: Set to `true` to always push after commit.
     *   `push_command`: Change how `yawn` pushes (e.g., `git push --no-verify origin HEAD`).
-    *   `ignore_patterns`: List file patterns (`*.log`, `*.tmp`) to exclude from the diff sent to the AI.
 
 Place your customizations in `./.yawn.toml` (project-specific) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
 

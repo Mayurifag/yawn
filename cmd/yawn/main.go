@@ -19,7 +19,7 @@ var (
 	// Flags
 	flagConfigPath     string // Allow specifying a config file (though layering handles most cases)
 	flagAPIKey         string
-	flagNoStage        bool
+	flagAutoStage      bool
 	flagAutoPush       bool
 	flagVerbose        bool
 	flagGenerateConfig bool
@@ -63,7 +63,7 @@ variables (YAWN_*)`,
 		}
 
 		// Load configuration with flag overrides
-		cfg, err := config.LoadConfig(projectPath, flagVerbose, flagAPIKey, flagNoStage, flagAutoPush)
+		cfg, err := config.LoadConfig(projectPath, flagVerbose, flagAPIKey, flagAutoStage, flagAutoPush)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
 			return err
@@ -103,7 +103,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Enable verbose logging output")
 	rootCmd.Flags().StringVar(&flagConfigPath, "config", "", "Path to a specific config file (overrides project/user discovery)") // Less common due to layering
 	rootCmd.Flags().StringVar(&flagAPIKey, "api-key", "", "Gemini API key (overrides config/env)")
-	rootCmd.Flags().BoolVar(&flagNoStage, "no-stage", false, "Skip stage check/prompt")
+	rootCmd.Flags().BoolVar(&flagAutoStage, "auto-stage", false, "Automatically stage all unstaged changes without prompting")
 	rootCmd.Flags().BoolVar(&flagAutoPush, "auto-push", false, "Automatically push after commit")
 	rootCmd.Flags().BoolVar(&flagGenerateConfig, "generate-config", false, "Print default configuration TOML to stdout and exit")
 

@@ -13,7 +13,8 @@ import (
 type GitClient interface {
 	HasStagedChanges() (bool, error)
 	HasUncommittedChanges() (bool, error)
-	GetDiff(ignorePatterns []string) (string, error)
+	HasUnstagedChanges() (bool, error)
+	GetDiff() (string, error)
 	StageChanges() error
 	Commit(message string) error
 	Push(command string) error
@@ -124,55 +125,66 @@ func (g *ExecGitClient) HasUncommittedChanges() (bool, error) {
 	return output != "", nil
 }
 
+// HasUnstagedChanges checks if there are any unstaged changes (modified but not staged).
+func (g *ExecGitClient) HasUnstagedChanges() (bool, error) {
+	// Use git diff without --cached to check for unstaged changes
+	_, err := g.runGitCommand("diff", "--quiet")
+	if err != nil {
+		// Exit code 1 means there are unstaged changes
+		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 1 {
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to check unstaged changes: %w", err)
+	}
+	// Exit code 0 means no unstaged changes
+	return false, nil
+}
+
 // GetDiff gets the diff of staged changes that will be included in the next commit.
-// It ignores files matching the provided glob patterns.
-func (g *ExecGitClient) GetDiff(ignorePatterns []string) (string, error) {
+func (g *ExecGitClient) GetDiff() (string, error) {
 	// We want the diff of staged changes only, which is what will be committed.
 	// `git diff --cached` shows changes staged for the next commit.
 	args := []string{"diff", "--cached"}
 
-	// Add pathspecs to exclude ignored patterns
-	// Note: Simple glob matching might not cover all gitignore capabilities.
-	// Git's internal filtering is more robust, but applying it post-diff is complex.
-	// Using pathspecs is a good compromise.
-	if len(ignorePatterns) > 0 {
-		args = append(args, "--") // Separator for pathspecs
-		// Add pathspecs to exclude ignored files
-		// We need to use the ':!' exclude syntax for pathspecs
-		for _, pattern := range ignorePatterns {
-			if pattern != "" {
-				args = append(args, fmt.Sprintf(":(exclude)%s", pattern))
-				// Also exclude directories matching the pattern, git pathspec behavior can vary
-				args = append(args, fmt.Sprintf(":(exclude)*/%s", pattern))
-			}
-		}
-	}
-
 	// Enhanced verbose logging for the exact command being executed
 	if g.Verbose {
-		fmt.Fprintf(os.Stderr, "[GIT] Getting diff of staged changes with command: git %s\n", strings.Join(args, " "))
+		fmt.Fprintln(os.Stderr, "[GIT] Fetching staged changes diff (git diff --cached)...")
+		fmt.Fprintf(os.Stderr, "[GIT] Command: git %s\n", strings.Join(args, " "))
 	}
 
 	diff, err := g.runGitCommand(args...)
 	if err != nil {
-		// It's possible `git diff --cached` returns an error if there are no staged changes
-		// Or if there are no changes (though usually just empty output).
-		// Let's check for specific known non-fatal errors if needed.
-		// For now, return the error.
-		return "", fmt.Errorf("failed to get git diff of staged changes: %w", err)
+		// Check if it's a GitError with specific exit codes
+		if gitErr, ok := err.(*GitError); ok {
+			switch gitErr.ExitCode {
+			case 1:
+				// Exit code 1 is normal when there are staged changes
+				// The diff will be in stdout, not an error
+				return gitErr.Stderr, nil
+			case 128:
+				// Exit code 128 often means not a git repository
+				return "", fmt.Errorf("not a git repository: %w", err)
+			default:
+				return "", fmt.Errorf("failed to get staged diff: %w", err)
+			}
+		}
+		return "", fmt.Errorf("failed to get staged diff: %w", err)
 	}
 
 	// Enhanced verbose logging for the obtained diff
 	if g.Verbose {
 		if diff == "" {
-			fmt.Fprintln(os.Stderr, "[GIT] No staged changes found after applying ignore patterns.")
+			fmt.Fprintln(os.Stderr, "[GIT] Warning: No staged changes found in diff output.")
+			fmt.Fprintln(os.Stderr, "[GIT] This might indicate an issue since we expect staged changes at this point.")
 		} else {
 			// Log a summary of the diff to avoid excessive output
 			lines := strings.Split(diff, "\n")
 			if len(lines) > 10 {
-				fmt.Fprintf(os.Stderr, "[GIT] Obtained diff of %d lines (showing first 10):\n%s\n...\n", len(lines), strings.Join(lines[:10], "\n"))
+				fmt.Fprintf(os.Stderr, "[GIT] Successfully obtained staged diff of %d lines (showing first 10):\n%s\n...\n",
+					len(lines), strings.Join(lines[:10], "\n"))
 			} else {
-				fmt.Fprintf(os.Stderr, "[GIT] Obtained diff of %d lines:\n%s\n", len(lines), diff)
+				fmt.Fprintf(os.Stderr, "[GIT] Successfully obtained staged diff of %d lines:\n%s\n",
+					len(lines), diff)
 			}
 		}
 	}
@@ -270,7 +282,8 @@ func (g *ExecGitClient) HasRemotes() (bool, error) {
 type MockGitClient struct {
 	MockHasStagedChanges      func() (bool, error)
 	MockHasUncommittedChanges func() (bool, error)
-	MockGetDiff               func(ignorePatterns []string) (string, error)
+	MockHasUnstagedChanges    func() (bool, error)
+	MockGetDiff               func() (string, error)
 	MockStageChanges          func() error
 	MockCommit                func(message string) error
 	MockPush                  func(command string) error
@@ -291,9 +304,16 @@ func (m *MockGitClient) HasUncommittedChanges() (bool, error) {
 	return true, nil // Default to having changes for testing flow
 }
 
-func (m *MockGitClient) GetDiff(ignorePatterns []string) (string, error) {
+func (m *MockGitClient) HasUnstagedChanges() (bool, error) {
+	if m.MockHasUnstagedChanges != nil {
+		return m.MockHasUnstagedChanges()
+	}
+	return false, fmt.Errorf("mock HasUnstagedChanges not implemented")
+}
+
+func (m *MockGitClient) GetDiff() (string, error) {
 	if m.MockGetDiff != nil {
-		return m.MockGetDiff(ignorePatterns)
+		return m.MockGetDiff()
 	}
 	return "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new", nil
 }
