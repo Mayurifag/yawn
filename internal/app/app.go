@@ -102,7 +102,7 @@ func (a *App) Run(ctx context.Context) error {
 			}
 			ui.PrintSuccess("All changes staged successfully.")
 		} else {
-			if !ui.AskYesNo("Would you like to stage all changes for commit? (This will run 'git add -A')", false) { // Default No
+			if !ui.AskYesNo("Would you like to stage all changes for commit? (This will run 'git add -A')", true) {
 				ui.PrintInfo("Staging declined.")
 				ui.PrintInfo("To stage changes, either:")
 				ui.PrintInfo("  1. Stage changes manually using 'git add'")
