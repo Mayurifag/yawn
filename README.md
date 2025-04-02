@@ -76,5 +76,8 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 * [ ] Release 1.0.0 when it will be mature enough
 * [ ] Make installation easier for all OSes (i.e. homebrew installation) and README.md better
+* [ ] In final result give link to user's PR or project page. Make that for github, gitlab (also private ones)
+* [x] Wait and add more free AI API providers, who dont ask for credit card
+  * I don't know anyone for now, but will add more here probably
 
-Actually, I do not plan any more features, except adding free AI API providers except of Gemini. Project considered as done.
+Actually, I do not plan much features. Project considered as done.
