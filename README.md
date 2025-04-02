@@ -1,4 +1,4 @@
-# Yawn - Never write a Git commit message again
+# Yawn
 
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Mayurifag/yawn)](https://github.com/Mayurifag/yawn/blob/main/go.mod)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Mayurifag/yawn)](https://goreportcard.com/report/github.com/Mayurifag/yawn)
@@ -15,16 +15,14 @@
 
 But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customizable**:
 
-*   Tweak the AI prompt? ✅
-*   Want to automatically stage *all* changes? ✅
+*   Tweak the AI prompt or use different Gemini model? ✅
+*   Automatically stage changes, commit and push? ✅
 *   Ignore specific files in the diff for the AI besides the .gitignore? ✅
 *   Override defaults using environment variables or additional parameters? ✅
 *   Override config per project? ✅
 *   Avoid Gemini API limits? ✅
-*   Interactive? ✅
 *   Sensible defaults? ✅
-*   Change the Gemini model? ✅
-*   Need to push skipping Git hooks (`git push --no-verify`)? ✅ Yea, you may even force push, if you want.
+*   Need to push skipping Git hooks (`git push --no-verify`)? You may even force push, if you want. ✅
 
 It **really** adapts to your workflow, that's why I made it and why it is better
 than any other Git commit message generator I've tried.
