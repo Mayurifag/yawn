@@ -26,23 +26,26 @@ But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customiza
 *   Change the Gemini model? ✅
 *   Need to push skipping Git hooks (`git push --no-verify`)? ✅ Yea, you may even force push, if you want.
 
-It **really** adapts to your workflow, that's why I made it and why it is better than any other Git commit message generator I've tried.
+It **really** adapts to your workflow, that's why I made it and why it is better
+than any other Git commit message generator I've tried.
 
 ---
 
-## 🚀 Installation
+## Installation
 
 Requires Go 1.24+. Make sure `$GOPATH/bin` or `$HOME/go/bin` is in your `PATH`.
 
 Run: `go install github.com/Mayurifag/yawn/cmd/yawn@latest`
 
-There are also pre-compiled binaries in packages, yet I am too lazy to write instructions to install them in Windows, MacOS and Linux.
+There are also pre-compiled binaries in packages, yet I am too lazy to write
+instructions to install them in Windows, MacOS and Linux.
 
-Pro-tip: `alias q="yawn"` is very useful, add it after first tries + config adaptations and your workflow will be changed forever. 😉
+Pro-tip: `alias q="yawn"` is very useful, add it after first tries + config
+adaptations and your workflow will be changed forever. 😉
 
 ---
 
-## 🛠️ Customization
+## Customization
 
 Want to tweak things? `yawn` is flexible!
 
@@ -57,15 +60,17 @@ Want to tweak things? `yawn` is flexible!
 
 Place your customizations in `./.yawn.toml` (project-specific) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
 
+By default, `yawn` generates commit messages following the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification, which provides a standardized format for commit messages. This makes your commit history more readable and enables automated tools to parse your commit messages.
+
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Found a bug or have an idea? Issues and Pull Requests are welcome on the [GitHub repository](https://github.com/Mayurifag/yawn)!
 
 ---
 
-## 📜 License
+## License
 
 This project is released into the public domain under The Unlicense. See the [LICENSE](LICENSE) file for details.
 
