@@ -25,12 +25,14 @@ all: build
 build: fmt lint
 	@echo "==> Building $(APP_NAME) $(VERSION)..."
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(OUTPUT_DIR)/$(APP_NAME) $(CMD_PATH)
+	clear
 
 # Install the application to GOBIN
 install: fmt lint
 	@echo "==> Installing $(APP_NAME) to $(GOBIN)..."
 	@mkdir -p $(GOBIN)
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOBIN)/$(APP_NAME) $(CMD_PATH)
+	clear
 	@echo "$(APP_NAME) installed to $(GOBIN)/$(APP_NAME)"
 
 # Clean build artifacts
