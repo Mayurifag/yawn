@@ -1,4 +1,4 @@
-.PHONY: all build install clean fmt lint test coverage generate-config help
+.PHONY: all build install clean fmt lint test coverage release
 
 # Variables
 APP_NAME := yawn
@@ -23,64 +23,45 @@ all: build
 
 # Build the application
 build: fmt lint
-	@echo "==> Building $(APP_NAME) $(VERSION)..."
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(OUTPUT_DIR)/$(APP_NAME) $(CMD_PATH)
-	clear
 
 # Install the application to GOBIN
 install: fmt lint
 	@echo "==> Installing $(APP_NAME) to $(GOBIN)..."
 	@mkdir -p $(GOBIN)
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOBIN)/$(APP_NAME) $(CMD_PATH)
-	clear
-	@echo "$(APP_NAME) installed to $(GOBIN)/$(APP_NAME)"
 
 # Clean build artifacts
 clean:
-	@echo "==> Cleaning..."
 	$(GOCLEAN)
 	rm -f $(OUTPUT_DIR)/$(APP_NAME) coverage.*
 
 # Format code
 fmt:
-	@echo "==> Formatting code..."
 	$(GOFMT) ./...
 
 # Lint code
 lint:
-	@echo "==> Linting code..."
 	$(GOLINT) ./...
 
 # Run tests
 test:
-	@echo "==> Running tests..."
 	$(GOTEST) -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
 # Run tests with coverage report
 coverage:
-	@echo "==> Running tests with coverage..."
 	$(GOTEST) -v -race -coverprofile=coverage.out -covermode=atomic ./...
-	@echo "==> Opening coverage report..."
 	$(GOTOOL) cover -html=coverage.out
 
-# Generate default configuration file
-generate-config:
-	@echo "==> Generating default .yawn.toml configuration file..."
-	$(GORUN) $(CMD_PATH) --generate-config > .yawn.toml
-	@echo "Default config written to .yawn.toml"
-
-# Show help message
-help:
-	@echo "Usage: make [target]"
-	@echo ""
-	@echo "Targets:"
-	@echo "  all              Build the application (default)"
-	@echo "  build            Build the application binary"
-	@echo "  install          Build and install the application to $(GOBIN)"
-	@echo "  clean            Remove build artifacts"
-	@echo "  fmt              Format Go source code"
-	@echo "  lint             Run golangci-lint"
-	@echo "  test             Run tests"
-	@echo "  coverage         Run tests and show coverage report"
-	@echo "  generate-config  Generate a default .yawn.toml configuration file"
-	@echo "  help             Show this help message"
+# Release - bump version and push new tag
+release:
+	@echo "==> Creating new release..."
+	@current_tag=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
+	major=$$(echo $$current_tag | cut -d. -f1 | tr -d v); \
+	minor=$$(echo $$current_tag | cut -d. -f2); \
+	patch=$$(echo $$current_tag | cut -d. -f3); \
+	patch=$$((patch + 1)); \
+	new_tag="v$$major.$$minor.$$patch"; \
+	echo "Current tag: $$current_tag, New tag: $$new_tag"; \
+	git tag -a $$new_tag -m "Release $$new_tag"; \
+	git push origin $$new_tag
