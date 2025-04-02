@@ -20,7 +20,7 @@ type GitClient interface {
 	Push(command string) error
 	HasRemotes() (bool, error)
 	GetCurrentBranch() (string, error)
-	GetRemoteURL(remoteName string) (string, error)
+	GetRemoteURL(remote string) (string, error)
 	GetLastCommitHash() (string, error)
 }
 
@@ -33,7 +33,6 @@ type ExecGitClient struct {
 // NewExecGitClient creates a new Git client that executes git commands.
 // It tries to find the repository root automatically.
 func NewExecGitClient(verbose bool) (*ExecGitClient, error) {
-	// Find git repo root
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -44,289 +43,185 @@ func NewExecGitClient(verbose bool) (*ExecGitClient, error) {
 	return &ExecGitClient{RepoPath: repoPath, Verbose: verbose}, nil
 }
 
-func (g *ExecGitClient) runGitCommand(args ...string) (string, error) {
+// GitError represents an error from a git command execution.
+type GitError struct {
+	Command string
+	Output  string
+	Err     error
+}
+
+// Error implements the error interface for GitError.
+func (e *GitError) Error() string {
+	return fmt.Sprintf("git command '%s' failed: %s", e.Command, e.Err.Error())
+}
+
+// runGitCommand executes a git command and returns its output and any error.
+// It handles command execution, output capture, and error wrapping.
+func (c *ExecGitClient) runGitCommand(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
-	cmd.Dir = g.RepoPath // Ensure command runs in the repo root
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Dir = c.RepoPath
 
-	if g.Verbose {
-		fmt.Fprintf(os.Stderr, "[GIT] Running command: git %s\n", strings.Join(args, " "))
-	}
-
-	err := cmd.Run()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// For some git commands, non-zero exit codes are expected and meaningful
-		// Let the calling function interpret the exit code if needed
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Return the error with stderr for the caller to handle
-			return stdout.String(), &GitError{
-				Command:  fmt.Sprintf("git %s", strings.Join(args, " ")),
-				ExitCode: exitErr.ExitCode(),
-				Stderr:   strings.TrimSpace(stderr.String()),
+			return "", &GitError{
+				Command: fmt.Sprintf("git %s", strings.Join(args, " ")),
+				Output:  string(output),
+				Err:     fmt.Errorf("git command failed with exit code %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(output))),
 			}
 		}
-		// For non-ExitError types (like if git is not found), return as a regular error
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg == "" {
-			errMsg = err.Error()
-		}
-		if g.Verbose {
-			fmt.Fprintf(os.Stderr, "[GIT] Error: %s\n", errMsg)
-		}
-		return "", fmt.Errorf("git command failed: git %s: %s", strings.Join(args, " "), errMsg)
+		return "", fmt.Errorf("failed to execute git command: %w", err)
 	}
 
-	output := strings.TrimSpace(stdout.String())
-	if g.Verbose && output != "" {
-		fmt.Fprintf(os.Stderr, "[GIT] Output:\n%s\n", output)
-	}
-	if g.Verbose && strings.TrimSpace(stderr.String()) != "" {
-		fmt.Fprintf(os.Stderr, "[GIT] Stderr:\n%s\n", strings.TrimSpace(stderr.String()))
-	}
+	return strings.TrimSpace(string(output)), nil
+}
 
+// HasStagedChanges checks if there are any staged changes in the repository.
+// Returns true if there are staged changes, false otherwise.
+func (c *ExecGitClient) HasStagedChanges() (bool, error) {
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] Checking for staged changes...\n")
+	}
+	_, err := c.runGitCommand("diff", "--cached", "--quiet")
+	if err != nil {
+		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
+			// Exit code 1 with no output means there are staged changes
+			if c.Verbose {
+				fmt.Fprintf(os.Stderr, "[GIT] Found staged changes\n")
+			}
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to check for staged changes: %w", err)
+	}
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] No staged changes found\n")
+	}
+	return false, nil
+}
+
+// HasUncommittedChanges checks if there are any uncommitted changes in the repository.
+// Returns true if there are uncommitted changes, false otherwise.
+func (c *ExecGitClient) HasUncommittedChanges() (bool, error) {
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] Checking for uncommitted changes...\n")
+	}
+	_, err := c.runGitCommand("diff", "--quiet")
+	if err != nil {
+		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
+			// Exit code 1 with no output means there are uncommitted changes
+			if c.Verbose {
+				fmt.Fprintf(os.Stderr, "[GIT] Found uncommitted changes\n")
+			}
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to check for uncommitted changes: %w", err)
+	}
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] No uncommitted changes found\n")
+	}
+	return false, nil
+}
+
+// HasUnstagedChanges checks if there are any unstaged changes in the repository.
+// Returns true if there are unstaged changes, false otherwise.
+func (c *ExecGitClient) HasUnstagedChanges() (bool, error) {
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] Checking for unstaged changes...\n")
+	}
+	// Use git diff --quiet to check for unstaged changes
+	// Exit code 1 (with empty output) means there are unstaged changes
+	_, err := c.runGitCommand("diff", "--quiet")
+	if err != nil {
+		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
+			// Exit code 1 with no output means there are unstaged changes
+			if c.Verbose {
+				fmt.Fprintf(os.Stderr, "[GIT] Found unstaged changes\n")
+			}
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to check for unstaged changes: %w", err)
+	}
+	// Exit code 0 means no unstaged changes
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] No unstaged changes found\n")
+	}
+	return false, nil
+}
+
+// GetDiff retrieves the diff of staged changes.
+// Returns the diff output as a string.
+func (c *ExecGitClient) GetDiff() (string, error) {
+	output, err := c.runGitCommand("diff", "--cached")
+	if err != nil {
+		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
+			// Exit code 1 with no output means no changes
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to get diff: %w", err)
+	}
 	return output, nil
 }
 
-// GitError represents a git command error with exit code information.
-type GitError struct {
-	Command  string
-	ExitCode int
-	Stderr   string
-}
-
-func (e *GitError) Error() string {
-	if e.Stderr != "" {
-		return fmt.Sprintf("git command '%s' failed with exit code %d: %s", e.Command, e.ExitCode, e.Stderr)
-	}
-	return fmt.Sprintf("git command '%s' failed with exit code %d", e.Command, e.ExitCode)
-}
-
-// HasStagedChanges checks if there are any staged changes.
-func (g *ExecGitClient) HasStagedChanges() (bool, error) {
-	_, err := g.runGitCommand("diff", "--cached", "--quiet")
+// StageChanges stages all changes in the repository.
+// Returns an error if staging fails.
+func (c *ExecGitClient) StageChanges() error {
+	_, err := c.runGitCommand("add", "-A")
 	if err != nil {
-		// Exit code 1 means there are staged changes
-		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 1 {
-			return true, nil
-		}
-		return false, fmt.Errorf("failed to check staged changes: %w", err)
+		return fmt.Errorf("failed to stage changes: %w", err)
 	}
-	// Exit code 0 means no staged changes
-	return false, nil
-}
-
-// HasUncommittedChanges checks for any uncommitted changes (staged or unstaged).
-func (g *ExecGitClient) HasUncommittedChanges() (bool, error) {
-	// Use status --porcelain which is stable and easy to parse.
-	// It lists changes line by line. Empty output means no changes.
-	output, err := g.runGitCommand("status", "--porcelain")
-	if err != nil {
-		return false, fmt.Errorf("failed to get git status: %w", err)
-	}
-	return output != "", nil
-}
-
-// HasUnstagedChanges checks if there are any unstaged changes (modified but not staged).
-func (g *ExecGitClient) HasUnstagedChanges() (bool, error) {
-	// Use git diff without --cached to check for unstaged changes
-	_, err := g.runGitCommand("diff", "--quiet")
-	if err != nil {
-		// Exit code 1 means there are unstaged changes
-		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 1 {
-			return true, nil
-		}
-		return false, fmt.Errorf("failed to check unstaged changes: %w", err)
-	}
-	// Exit code 0 means no unstaged changes
-	return false, nil
-}
-
-// GetDiff gets the diff of staged changes that will be included in the next commit.
-func (g *ExecGitClient) GetDiff() (string, error) {
-	// We want the diff of staged changes only, which is what will be committed.
-	// `git diff --cached` shows changes staged for the next commit.
-	args := []string{"diff", "--cached"}
-
-	// Enhanced verbose logging for the exact command being executed
-	if g.Verbose {
-		fmt.Fprintln(os.Stderr, "[GIT] Fetching staged changes diff (git diff --cached)...")
-		fmt.Fprintf(os.Stderr, "[GIT] Command: git %s\n", strings.Join(args, " "))
-	}
-
-	diff, err := g.runGitCommand(args...)
-	if err != nil {
-		// Check if it's a GitError with specific exit codes
-		if gitErr, ok := err.(*GitError); ok {
-			switch gitErr.ExitCode {
-			case 1:
-				// Exit code 1 is normal when there are staged changes
-				// The diff will be in stdout, not an error
-				return gitErr.Stderr, nil
-			case 128:
-				// Exit code 128 often means not a git repository
-				return "", fmt.Errorf("not a git repository: %w", err)
-			default:
-				return "", fmt.Errorf("failed to get staged diff: %w", err)
-			}
-		}
-		return "", fmt.Errorf("failed to get staged diff: %w", err)
-	}
-
-	// Enhanced verbose logging for the obtained diff
-	if g.Verbose {
-		if diff == "" {
-			fmt.Fprintln(os.Stderr, "[GIT] Warning: No staged changes found in diff output.")
-			fmt.Fprintln(os.Stderr, "[GIT] This might indicate an issue since we expect staged changes at this point.")
-		} else {
-			// Log a summary of the diff to avoid excessive output
-			lines := strings.Split(diff, "\n")
-			if len(lines) > 10 {
-				fmt.Fprintf(os.Stderr, "[GIT] Successfully obtained staged diff of %d lines (showing first 10):\n%s\n...\n",
-					len(lines), strings.Join(lines[:10], "\n"))
-			} else {
-				fmt.Fprintf(os.Stderr, "[GIT] Successfully obtained staged diff of %d lines:\n%s\n",
-					len(lines), diff)
-			}
-		}
-	}
-
-	return diff, nil
-}
-
-// StageChanges stages all current changes including untracked files.
-func (g *ExecGitClient) StageChanges() error {
-	// First stage all tracked files
-	_, err := g.runGitCommand("add", "-u")
-	if err != nil {
-		return fmt.Errorf("failed to stage tracked changes: %w", err)
-	}
-
-	// Then stage untracked files
-	_, err = g.runGitCommand("add", ".")
-	if err != nil {
-		return fmt.Errorf("failed to stage untracked files: %w", err)
-	}
-
 	return nil
 }
 
 // Commit creates a commit with the given message.
-// It commits only the currently staged changes.
-// The caller is responsible for ensuring changes are staged before calling this method.
-func (g *ExecGitClient) Commit(message string) error {
-	// Commit the staged changes
-	_, err := g.runGitCommand("commit", "-m", message)
+// Returns an error if commit fails.
+func (c *ExecGitClient) Commit(message string) error {
+	_, err := c.runGitCommand("commit", "-m", message)
 	if err != nil {
-		// Check for "nothing to commit" error, which might happen if nothing is staged
-		if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added to commit") {
-			fmt.Fprintln(os.Stderr, "[GIT] Warning: No changes were staged for commit.")
-			return nil // Not a fatal error for yawn's flow
-		}
 		return fmt.Errorf("failed to commit changes: %w", err)
 	}
 	return nil
 }
 
-// Push executes the configured push command.
-func (g *ExecGitClient) Push(command string) error {
-	// Split the command string into parts for exec.Command
+// Push executes the provided Git push command.
+func (c *ExecGitClient) Push(command string) error {
 	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return fmt.Errorf("push command is empty")
-	}
-	// Assume the first part is "git", replace if necessary or prepend if missing?
-	// Let's assume user provides full command like "git push origin HEAD"
 	if len(parts) < 2 || parts[0] != "git" {
-		// Maybe prepend git? Or error out? Let's error out for clarity.
 		return fmt.Errorf("invalid push command format: expected 'git push ...', got '%s'", command)
-		// parts = append([]string{"git"}, parts...)
 	}
 
-	_, err := g.runGitCommand(parts[1:]...) // Pass arguments after "git"
+	// Remove the "git" prefix and execute the command
+	_, err := c.runGitCommand(parts[1:]...)
 	if err != nil {
-		return fmt.Errorf("failed to push changes using command '%s': %w", command, err)
+		return fmt.Errorf("failed to push changes: %w", err)
 	}
 	return nil
 }
 
 // HasRemotes checks if the repository has any remote repositories configured.
-func (g *ExecGitClient) HasRemotes() (bool, error) {
-	if g.Verbose {
-		fmt.Fprintln(os.Stderr, "[GIT] Checking for remote repositories...")
-	}
-
-	output, err := g.runGitCommand("remote")
+// Returns true if there are remotes, false otherwise.
+func (c *ExecGitClient) HasRemotes() (bool, error) {
+	output, err := c.runGitCommand("remote", "-v")
 	if err != nil {
-		// If the error is a GitError with exit code 128, it might mean we're not in a git repo
-		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 128 {
-			return false, fmt.Errorf("not a git repository: %w", err)
-		}
 		return false, fmt.Errorf("failed to check for remotes: %w", err)
 	}
-
-	// If output is empty, no remotes exist
-	hasRemotes := output != ""
-	if g.Verbose {
-		if hasRemotes {
-			fmt.Fprintf(os.Stderr, "[GIT] Found remote repositories: %s\n", output)
-		} else {
-			fmt.Fprintln(os.Stderr, "[GIT] No remote repositories found")
-		}
-	}
-
-	return hasRemotes, nil
+	return output != "", nil
 }
 
 // GetCurrentBranch returns the name of the current branch.
-// If in a detached HEAD state, it returns "HEAD" and an error indicating the detached state.
-func (g *ExecGitClient) GetCurrentBranch() (string, error) {
-	// First try git branch --show-current which is more reliable
-	output, err := g.runGitCommand("branch", "--show-current")
+// Returns an error if branch name cannot be determined.
+func (c *ExecGitClient) GetCurrentBranch() (string, error) {
+	output, err := c.runGitCommand("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		// If the command failed, check if we're in a detached HEAD state
-		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 1 {
-			// We might be in a detached HEAD state, try to verify
-			detached, err := g.isDetachedHEAD()
-			if err == nil && detached {
-				return "HEAD", fmt.Errorf("detached HEAD state")
-			}
-		}
 		return "", fmt.Errorf("failed to get current branch: %w", err)
 	}
-
-	branch := strings.TrimSpace(output)
-	if branch == "" {
-		return "", fmt.Errorf("no current branch found")
-	}
-
-	return branch, nil
+	return output, nil
 }
 
-// isDetachedHEAD checks if the repository is in a detached HEAD state.
-func (g *ExecGitClient) isDetachedHEAD() (bool, error) {
-	output, err := g.runGitCommand("rev-parse", "--abbrev-ref", "HEAD")
+// GetRemoteURL returns the URL of the specified remote.
+func (c *ExecGitClient) GetRemoteURL(remote string) (string, error) {
+	output, err := c.runGitCommand("remote", "get-url", remote)
 	if err != nil {
-		return false, fmt.Errorf("failed to check HEAD state: %w", err)
-	}
-	return strings.TrimSpace(output) == "HEAD", nil
-}
-
-// GetRemoteURL returns the URL of the specified remote repository.
-// If remoteName is empty, it defaults to "origin".
-func (g *ExecGitClient) GetRemoteURL(remoteName string) (string, error) {
-	if remoteName == "" {
-		remoteName = "origin"
-	}
-
-	output, err := g.runGitCommand("config", "--get", fmt.Sprintf("remote.%s.url", remoteName))
-	if err != nil {
-		// Check if it's a GitError with exit code 1 (remote not found)
-		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 1 {
-			return "", fmt.Errorf("remote '%s' not found", remoteName)
-		}
-		return "", fmt.Errorf("failed to get remote URL for '%s': %w", remoteName, err)
+		return "", fmt.Errorf("failed to get remote URL: %w", err)
 	}
 	return strings.TrimSpace(output), nil
 }

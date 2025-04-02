@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Mayurifag/yawn/internal/config"
@@ -29,209 +30,219 @@ func NewApp(cfg config.Config, gitClient git.GitClient, geminiClient gemini.Clie
 	}
 }
 
-// Run executes the main logic of the yawn application.
-func (a *App) Run(ctx context.Context) error {
+// setupAndCheckPrerequisites performs initial setup and checks:
+// - Starts verbose logging
+// - Ensures API key is available
+// - Checks for uncommitted changes
+// Returns whether there are changes and any error encountered.
+func (a *App) setupAndCheckPrerequisites() (bool, error) {
 	if a.Config.Verbose {
-		ui.PrintInfo("Starting Yawn...")
+		fmt.Fprintln(os.Stderr, "[APP] Starting yawn - AI Git Commiter using Google Gemini")
 	}
 
-	// 1. Check API Key first
-	apiKey := a.Config.GeminiAPIKey
-	if apiKey == "" {
-		ui.PrintInfo("Gemini API key is missing.")
-		ui.PrintInfo("You can set it using:")
-		ui.PrintInfo("  - YAWN_GEMINI_API_KEY environment variable")
-		ui.PrintInfo("  - 'gemini_api_key' in .yawn.toml (project) or ~/.config/yawn/config.toml (user)")
-		ui.PrintInfo("  - --api-key flag")
-		ui.PrintInfo("Get a key from: https://aistudio.google.com/app/apikey")
-		a.Config.GeminiAPIKey = ui.AskForInput("Please enter your Gemini API key:", true)
-		if a.Config.GeminiAPIKey == "" {
-			return fmt.Errorf("API key is required to proceed")
+	// Check for API key
+	if a.Config.GeminiAPIKey == "" {
+		fmt.Fprintln(os.Stderr, "No API key found. Please provide your Google Gemini API key.")
+		fmt.Fprintln(os.Stderr, "You can get one from: https://makersuite.google.com/app/apikey")
+		apiKey := ui.AskForInput("Enter your Google Gemini API key: ", true)
+		if apiKey == "" {
+			return false, fmt.Errorf("API key is required")
 		}
-		if err := config.SaveAPIKeyToUserConfig(a.Config.GeminiAPIKey); err != nil {
+
+		// Save the API key to user config
+		if err := config.SaveAPIKeyToUserConfig(apiKey); err != nil {
 			// Log error but continue since we have the key in memory
-			ui.PrintError("Failed to save API key to configuration file")
-			ui.PrintInfo("The current session will continue, but you'll need to provide the key again next time")
-			if a.Config.Verbose {
-				ui.PrintError(fmt.Sprintf("Error details: %v", err))
-			}
-		} else {
-			ui.PrintSuccess("API key saved to ~/.config/yawn/config.toml")
+			fmt.Fprintf(os.Stderr, "Warning: Failed to save API key to config file: %v\n", err)
 		}
-		if a.Config.Verbose {
-			ui.PrintInfo("API Key provided interactively.")
-		}
-
-		// Update the Gemini client with the new API key
-		a.GeminiClient.SetAPIKey(a.Config.GeminiAPIKey)
+		a.Config.GeminiAPIKey = apiKey
 	}
 
-	// 2. Check for uncommitted changes
+	// Check for uncommitted changes
 	hasChanges, err := a.GitClient.HasUncommittedChanges()
 	if err != nil {
-		ui.PrintError(fmt.Sprintf("Failed to check git status: %v", err))
-		return err
+		return false, fmt.Errorf("failed to check for uncommitted changes: %w", err)
 	}
 	if !hasChanges {
-		ui.PrintInfo("No uncommitted changes detected. Nothing to do.")
-		return nil
-	}
-	if a.Config.Verbose {
-		ui.PrintInfo("Uncommitted changes detected.")
+		return false, fmt.Errorf("no changes to commit")
 	}
 
-	// 3. Check for staged changes
+	return true, nil
+}
+
+// ensureStagedChanges ensures that changes are staged for commit.
+// If auto_stage is enabled, stages all changes automatically.
+// Otherwise, prompts the user to stage changes if needed.
+// Returns an error if staging fails or is declined when required.
+func (a *App) ensureStagedChanges() error {
 	hasStaged, err := a.GitClient.HasStagedChanges()
 	if err != nil {
-		ui.PrintError(fmt.Sprintf("Failed to check for staged changes: %v", err))
-		return err
+		return fmt.Errorf("failed to check for staged changes: %w", err)
 	}
 
-	// 4. Handle staging if needed
-	if !hasStaged {
-		if a.Config.Verbose {
-			ui.PrintInfo("No changes staged. Checking if staging is needed/requested.")
-		}
-
-		if a.Config.AutoStage {
-			if a.Config.Verbose {
-				ui.PrintInfo("Auto-staging all changes...")
-			}
-			err := a.GitClient.StageChanges()
-			if err != nil {
-				ui.PrintError(fmt.Sprintf("Failed to stage changes: %v", err))
-				return err
-			}
-			ui.PrintSuccess("All changes staged successfully.")
-		} else {
-			if !ui.AskYesNo("Would you like to stage all changes for commit? (This will run 'git add -A')", true) {
-				ui.PrintInfo("Staging declined.")
-				ui.PrintInfo("To stage changes, either:")
-				ui.PrintInfo("  1. Stage changes manually using 'git add'")
-				ui.PrintInfo("  2. Run yawn again and choose to stage changes")
-				return nil
-			}
-
-			if a.Config.Verbose {
-				ui.PrintInfo("Staging all changes...")
-			}
-			err := a.GitClient.StageChanges()
-			if err != nil {
-				ui.PrintError(fmt.Sprintf("Failed to stage changes: %v", err))
-				return err
-			}
-			ui.PrintSuccess("All changes staged successfully.")
-		}
-		ui.PrintInfo("Your changes are now staged and ready to commit.")
-	} else if a.Config.Verbose {
-		ui.PrintInfo("Changes already staged. Proceeding with commit.")
-	}
-
-	// 5. Get Git Diff
 	if a.Config.Verbose {
-		ui.PrintInfo("Getting diff of staged changes...")
+		fmt.Fprintf(os.Stderr, "[DEBUG] Has staged changes: %v\n", hasStaged)
 	}
-	diff, err := a.GitClient.GetDiff()
-	if err != nil {
-		ui.PrintError(fmt.Sprintf("Failed to get git diff: %v", err))
-		return err
+
+	if hasStaged {
+		if a.Config.Verbose {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Already have staged changes, skipping staging prompt\n")
+		}
+		return nil // Already staged, nothing to do
 	}
-	if diff == "" {
-		ui.PrintInfo("No staged changes detected. Nothing to commit.")
+
+	if a.Config.AutoStage {
+		if a.Config.Verbose {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Auto-staging enabled, staging all changes\n")
+		}
+		// Auto-stage all changes
+		if err := a.GitClient.StageChanges(); err != nil {
+			return fmt.Errorf("failed to stage changes: %w", err)
+		}
 		return nil
 	}
-	if a.Config.Verbose {
-		ui.PrintInfo("Diff of staged changes obtained successfully.")
+
+	// Prompt user to stage changes
+	hasUnstaged, err := a.GitClient.HasUnstagedChanges()
+	if err != nil {
+		return fmt.Errorf("failed to check for unstaged changes: %w", err)
 	}
 
-	// 6. Generate Commit Message
-	ui.PrintInfo("Generating commit message with Gemini...")
-	spinner := ui.StartSpinner("Waiting for AI")
+	if a.Config.Verbose {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Has unstaged changes: %v\n", hasUnstaged)
+	}
+
+	if hasUnstaged {
+		if !ui.AskYesNo("You have unstaged changes. Would you like to stage them?", true) {
+			return fmt.Errorf("staging required to proceed")
+		}
+		if err := a.GitClient.StageChanges(); err != nil {
+			return fmt.Errorf("failed to stage changes: %w", err)
+		}
+	} else {
+		// We've already checked for staged changes above, and now we find no unstaged changes
+		// This means there are no changes at all to commit
+		return fmt.Errorf("no changes to commit - nothing is staged or unstaged")
+	}
+
+	return nil
+}
+
+// generateAndCommitChanges handles the commit message generation and commit execution.
+// It retrieves the staged diff, generates a message using Gemini, and commits the changes.
+// Returns an error if any step fails.
+func (a *App) generateAndCommitChanges(ctx context.Context) error {
+	// Get staged changes for commit message generation
+	diff, err := a.GitClient.GetDiff()
+	if err != nil {
+		return fmt.Errorf("failed to get staged changes: %w", err)
+	}
+	if diff == "" {
+		return fmt.Errorf("no staged changes to commit")
+	}
+
+	// Generate commit message using Gemini with timeout
 	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
 	defer cancel()
 
-	commitMessage, err := a.GeminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens)
-
+	spinner := ui.StartSpinner("Generating commit message...")
+	message, err := a.GeminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens)
 	ui.StopSpinner(spinner)
-	ui.ClearLine() // Clean up the spinner line
+	ui.ClearLine()
 
 	if err != nil {
-		// Check for context deadline exceeded
 		if ctxTimeout.Err() == context.DeadlineExceeded {
-			ui.PrintError(fmt.Sprintf("Gemini request timed out after %s.", a.Config.GetRequestTimeout()))
-		} else {
-			ui.PrintError(fmt.Sprintf("Failed to generate commit message: %v", err))
+			return fmt.Errorf("commit message generation timed out after %s", a.Config.GetRequestTimeout())
 		}
-		// Check if it was the token limit error specifically
 		if strings.Contains(err.Error(), "git diff is too large") {
-			// Specific message already printed by Gemini client potentially, but reiterate here.
-			ui.PrintError("The changes are too large for the configured 'max_tokens'.")
-			ui.PrintInfo("Consider committing smaller changes or increasing 'max_tokens' in your configuration.")
+			return fmt.Errorf("changes are too large for the configured 'max_tokens' (%d). Consider committing smaller changes or increasing the limit", a.Config.MaxTokens)
 		}
-		return err
+		return fmt.Errorf("failed to generate commit message: %w", err)
 	}
 
-	if commitMessage == "" {
-		ui.PrintError("Gemini returned an empty commit message.")
-		return fmt.Errorf("empty commit message received")
+	if message == "" {
+		return fmt.Errorf("empty commit message received from Gemini")
 	}
 
-	ui.PrintSuccess("Generated Commit Message:")
-	fmt.Println("---")
-	fmt.Println(commitMessage)
-	fmt.Println("---")
+	// Display the generated message
+	fmt.Println("Generated commit message:")
+	fmt.Println(message)
 
-	// 7. Commit
-	if a.Config.Verbose {
-		ui.PrintInfo("Creating commit with generated message...")
+	// Commit changes
+	if err := a.GitClient.Commit(message); err != nil {
+		return fmt.Errorf("failed to commit changes: %w", err)
 	}
-	err = a.GitClient.Commit(commitMessage)
+
+	return nil
+}
+
+// handlePushOperation manages the push workflow:
+// - Checks if push is needed (auto-push or user prompt)
+// - Verifies remotes exist
+// - Executes the push command
+// - Reports success/failure
+// Returns an error if any step fails.
+func (a *App) handlePushOperation() error {
+	// Check if push is needed
+	if !a.Config.AutoPush {
+		if !ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), true) {
+			return nil // User declined push
+		}
+	}
+
+	// Check for remotes
+	hasRemotes, err := a.Pusher.HasRemotes()
 	if err != nil {
-		ui.PrintError(fmt.Sprintf("Failed to commit changes: %v", err))
+		return fmt.Errorf("failed to check for remote repositories: %w", err)
+	}
+	if !hasRemotes {
+		return fmt.Errorf("no remote repositories configured. Add one using 'git remote add <name> <url>'")
+	}
+
+	// Execute push command
+	spinner := ui.StartSpinner("Pushing changes...")
+	result, err := a.Pusher.ExecutePush(a.Config.PushCommand)
+	ui.StopSpinner(spinner)
+	ui.ClearLine()
+
+	if err != nil {
+		return fmt.Errorf("failed to push changes: %w", err)
+	}
+	if !result.Success {
+		return fmt.Errorf("push command failed")
+	}
+
+	// Report success and repository link if available
+	if result.RepoLink != "" {
+		fmt.Fprintf(os.Stderr, "View your repository: %s\n", result.RepoLink)
+	}
+
+	return nil
+}
+
+// Run executes the main application logic.
+func (a *App) Run() error {
+	// Setup and check prerequisites
+	hasChanges, err := a.setupAndCheckPrerequisites()
+	if err != nil {
 		return err
 	}
-	ui.PrintSuccess("Changes committed successfully.")
-
-	// 8. Push
-	shouldPush := a.Config.AutoPush
-	if !shouldPush {
-		if ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), true) {
-			shouldPush = true
-		}
+	if !hasChanges {
+		return nil // No changes to commit
 	}
 
-	if shouldPush {
-		// Check for remotes before attempting to push
-		hasRemotes, err := a.Pusher.HasRemotes()
-		if err != nil {
-			ui.PrintError(fmt.Sprintf("Failed to check for remote repositories: %v", err))
-			// Continue without pushing, but log the error
-		} else if !hasRemotes {
-			ui.PrintInfo("No remote repositories configured. Skipping push.")
-			if a.Config.Verbose {
-				ui.PrintInfo("To push changes, add a remote repository using 'git remote add <name> <url>'")
-			}
-		} else {
-			if a.Config.Verbose {
-				ui.PrintInfo(fmt.Sprintf("Pushing changes using command: %s", a.Config.PushCommand))
-			}
-			spinner := ui.StartSpinner("Pushing changes")
-			result, err := a.Pusher.ExecutePush(a.Config.PushCommand)
-			ui.StopSpinner(spinner)
-			ui.ClearLine()
+	// Ensure changes are staged
+	if err := a.ensureStagedChanges(); err != nil {
+		return err
+	}
 
-			if err != nil {
-				ui.PrintError(fmt.Sprintf("Failed to push changes: %v", err))
-				// Don't return error here, commit succeeded. Push failure is less critical.
-			} else if result.Success {
-				ui.PrintSuccess("Changes pushed successfully.")
-				if result.RepoLink != "" {
-					ui.PrintInfo(fmt.Sprintf("View your repository: %s", result.RepoLink))
-				}
-			}
-		}
-	} else if a.Config.Verbose {
-		ui.PrintInfo("Skipping push based on config or user choice.")
+	// Generate commit message and commit changes
+	if err := a.generateAndCommitChanges(context.Background()); err != nil {
+		return err
+	}
+
+	// Handle push operation if needed
+	if err := a.handlePushOperation(); err != nil {
+		return err
 	}
 
 	return nil

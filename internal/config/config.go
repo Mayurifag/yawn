@@ -32,6 +32,8 @@ const (
 - If there are multiple changes, try to mention them all in the commit message in body, divide them into separate bullet points (one per -)
 - Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line
 - Do not use formatting for output, just the commit message itself. Don't use ticks or other formatting symbols, only text of commit, no commentaries after or before message.
+- Preserve newlines in the commit body. Each bullet point should be on its own line.
+- The body should be separated from the description by a blank line.
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
 
@@ -105,57 +107,53 @@ type Config struct {
 	PushCommand           string `toml:"push_command"`
 	Verbose               bool   `toml:"verbose"`
 
-	// Internal fields to track config sources
 	sources map[string]string `toml:"-"` // Key: field name, Value: source (default, user, project, env, flag)
 }
 
-// LoadConfig loads configuration from defaults, user file, project file, and environment variables.
-// It returns the merged configuration and an error if any occurs during loading.
-func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) (Config, error) {
-	cfg := defaultConfig()
-	cfg.sources = make(map[string]string)
-	for k := range toMap(cfg) {
-		cfg.sources[k] = "default"
-	}
-
-	// 1. User Config File
+// loadUserConfig attempts to load configuration from the user's config file.
+// Returns the loaded config, metadata, and any error encountered.
+func loadUserConfig() (Config, toml.MetaData, error) {
 	userConfigPath, err := getUserConfigPath()
 	if err != nil {
-		// Non-fatal, just means we can't load user config
-		// Verbosity check needs to happen *after* flags are potentially applied
-	} else {
-		if _, err := os.Stat(userConfigPath); err == nil {
-			var loadedCfg Config
-			// Use DecodeFile to load into a temporary struct first
-			metadata, decodeErr := toml.DecodeFile(userConfigPath, &loadedCfg)
-			if decodeErr != nil {
-				return cfg, fmt.Errorf("failed to load user config from %s: %w", userConfigPath, decodeErr)
-			}
-			mergeConfig(&cfg, loadedCfg, metadata, "user")
-			// Defer verbose logging until flags are processed
-		} else if !os.IsNotExist(err) {
-			return cfg, fmt.Errorf("failed to check user config file %s: %w", userConfigPath, err)
-		}
+		return Config{}, toml.MetaData{}, nil // Non-fatal, just means we can't load user config
 	}
 
-	// 2. Project Config File
+	if _, err := os.Stat(userConfigPath); err != nil {
+		if os.IsNotExist(err) {
+			return Config{}, toml.MetaData{}, nil // File doesn't exist, not an error
+		}
+		return Config{}, toml.MetaData{}, fmt.Errorf("failed to check user config file %s: %w", userConfigPath, err)
+	}
+
+	var loadedCfg Config
+	metadata, decodeErr := toml.DecodeFile(userConfigPath, &loadedCfg)
+	if decodeErr != nil {
+		return Config{}, toml.MetaData{}, fmt.Errorf("failed to load user config from %s: %w", userConfigPath, decodeErr)
+	}
+
+	return loadedCfg, metadata, nil
+}
+
+// loadProjectConfig attempts to load configuration from the project's config file.
+// Returns the loaded config, metadata, and any error encountered.
+func loadProjectConfig(projectPath string) (Config, toml.MetaData, error) {
 	projectConfigPath := findProjectConfig(projectPath)
-	if projectConfigPath != "" {
-		var loadedCfg Config
-		metadata, decodeErr := toml.DecodeFile(projectConfigPath, &loadedCfg)
-		if decodeErr != nil {
-			return cfg, fmt.Errorf("failed to load project config from %s: %w", projectConfigPath, decodeErr)
-		}
-		mergeConfig(&cfg, loadedCfg, metadata, "project")
-		// Defer verbose logging
+	if projectConfigPath == "" {
+		return Config{}, toml.MetaData{}, nil // No project config found, not an error
 	}
 
-	// 3. Environment Variables
-	loadConfigFromEnv(&cfg)
-	// Defer verbose logging
+	var loadedCfg Config
+	metadata, decodeErr := toml.DecodeFile(projectConfigPath, &loadedCfg)
+	if decodeErr != nil {
+		return Config{}, toml.MetaData{}, fmt.Errorf("failed to load project config from %s: %w", projectConfigPath, decodeErr)
+	}
 
-	// 4. Command Line Flags (Highest priority)
-	// Verbose flag applied first
+	return loadedCfg, metadata, nil
+}
+
+// applyCommandLineFlags applies command-line flags to the configuration.
+// Returns the updated config with sources tracked.
+func applyCommandLineFlags(cfg Config, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) Config {
 	if verboseFlag {
 		cfg.Verbose = true
 		cfg.sources["Verbose"] = "flag"
@@ -165,35 +163,76 @@ func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, autoSta
 		cfg.sources["GeminiAPIKey"] = "flag"
 	}
 	if autoStageFlag {
-		cfg.AutoStage = true // --auto-stage overrides config/env to enable auto stage
+		cfg.AutoStage = true
 		cfg.sources["AutoStage"] = "flag"
 	}
 	if autoPushFlag {
-		cfg.AutoPush = true // --auto-push overrides config/env to enable auto push
+		cfg.AutoPush = true
 		cfg.sources["AutoPush"] = "flag"
 	}
+	return cfg
+}
 
-	// Now that flags are processed, check verbosity for initial load messages
-	if cfg.Verbose {
-		if userConfigPath != "" {
-			if _, err := os.Stat(userConfigPath); err == nil {
-				fmt.Fprintf(os.Stderr, "[CONFIG] Loaded user config: %s\n", userConfigPath)
-			} else if !os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Error checking user config %s: %v\n", userConfigPath, err)
-			}
-		} else {
-			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Could not determine user config path.\n")
-		}
-		if projectConfigPath != "" {
-			fmt.Fprintf(os.Stderr, "[CONFIG] Loaded project config: %s\n", projectConfigPath)
-		}
-		// Log env var loading if verbose
-		fmt.Fprintln(os.Stderr, "[CONFIG] Applied environment variables.")
-		// Log flag application if verbose
-		fmt.Fprintln(os.Stderr, "[CONFIG] Applied command-line flags.")
-
-		logConfigSources(cfg)
+// logConfigLoading logs information about the configuration loading process.
+func logConfigLoading(cfg Config, userConfigPath string, projectConfigPath string) {
+	if !cfg.Verbose {
+		return
 	}
+
+	if userConfigPath != "" {
+		if _, err := os.Stat(userConfigPath); err == nil {
+			fmt.Fprintf(os.Stderr, "[CONFIG] Loaded user config: %s\n", userConfigPath)
+		} else if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "[CONFIG] Warning: Error checking user config %s: %v\n", userConfigPath, err)
+		} else {
+			fmt.Fprintln(os.Stderr, "[CONFIG] Warning: Could not determine user config path.")
+		}
+	}
+
+	if projectConfigPath != "" {
+		fmt.Fprintf(os.Stderr, "[CONFIG] Loaded project config: %s\n", projectConfigPath)
+	}
+
+	fmt.Fprintln(os.Stderr, "[CONFIG] Applied environment variables.")
+	fmt.Fprintln(os.Stderr, "[CONFIG] Applied command-line flags.")
+
+	logConfigSources(cfg)
+}
+
+// LoadConfig loads configuration from defaults, user file, project file, and environment variables.
+// It returns the merged configuration and an error if any occurs during loading.
+func LoadConfig(projectPath string, verboseFlag bool, apiKeyFlag string, autoStageFlag bool, autoPushFlag bool) (Config, error) {
+	// Start with default configuration
+	cfg := defaultConfig()
+	cfg.sources = make(map[string]string)
+	for k := range toMap(cfg) {
+		cfg.sources[k] = "default"
+	}
+
+	// Load user config (if available)
+	userCfg, userMeta, err := loadUserConfig()
+	if err != nil {
+		return cfg, err
+	}
+	mergeConfig(&cfg, userCfg, userMeta, "user")
+
+	// Load project config (if available)
+	projectCfg, projectMeta, err := loadProjectConfig(projectPath)
+	if err != nil {
+		return cfg, err
+	}
+	mergeConfig(&cfg, projectCfg, projectMeta, "project")
+
+	// Load from environment variables
+	loadConfigFromEnv(&cfg)
+
+	// Apply command-line flags (highest precedence)
+	cfg = applyCommandLineFlags(cfg, verboseFlag, apiKeyFlag, autoStageFlag, autoPushFlag)
+
+	// Log configuration loading process if verbose
+	userConfigPath, _ := getUserConfigPath()
+	projectConfigPath := findProjectConfig(projectPath)
+	logConfigLoading(cfg, userConfigPath, projectConfigPath)
 
 	return cfg, nil
 }
@@ -521,6 +560,162 @@ func logConfigSources(cfg Config) {
 	}
 }
 
+// writeConfigFileAtomically writes content to a file atomically with proper permissions.
+// It creates a temporary file, writes content, sets permissions, and renames it to the target path.
+func writeConfigFileAtomically(content []byte, targetPath string) error {
+	dir := filepath.Dir(targetPath)
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(targetPath)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary config file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	// Ensure temp file is cleaned up on error
+	defer func() {
+		if err != nil { // Only remove if there was an error during write/rename
+			os.Remove(tmpPath)
+		}
+	}()
+
+	// Write content to temp file
+	if _, err = tmpFile.Write(content); err != nil {
+		tmpFile.Close() // Close even on write error
+		return fmt.Errorf("failed to write to temporary config file: %w", err)
+	}
+
+	// Close the temp file before renaming
+	if err = tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary config file: %w", err)
+	}
+
+	// Set restrictive permissions (read/write for owner only: 0600)
+	if err = os.Chmod(tmpPath, 0600); err != nil {
+		// Attempt to remove the temp file if chmod fails
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to set permissions on temporary config file: %w", err)
+	}
+
+	// Atomically replace the actual config file with the temporary file
+	if err = os.Rename(tmpPath, targetPath); err != nil {
+		// Attempt to remove the temp file if rename fails
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to save config file (rename failed): %w", err)
+	}
+
+	return nil
+}
+
+// generateNewConfigContent generates TOML content for a new config file.
+func generateNewConfigContent(apiKey string) []byte {
+	var buf bytes.Buffer
+
+	// Write comments first
+	comments := []string{
+		"# Configuration file for yawn - AI Git Commiter using Google Gemini",
+		"#",
+		"# This file can be placed in:",
+		"# - ~/.config/yawn/config.toml (user config)",
+		"# - ./.yawn.toml (project config)",
+		"#",
+		"# Environment variables (YAWN_*) take precedence over this file",
+		"# Command line flags take precedence over environment variables",
+		"#",
+		"# Model configuration",
+		"#",
+		"# Git workflow configuration",
+		"#",
+		"# When auto_stage is true, all unstaged changes will be automatically staged",
+		"# When auto_stage is false and there are unstaged changes, you will be prompted to stage them",
+		"#",
+		"# Logging configuration",
+		"#",
+		"# Custom prompt for commit message generation",
+	}
+
+	for _, comment := range comments {
+		buf.WriteString(comment + "\n")
+	}
+	buf.WriteString("\n")
+
+	// Write the configuration values
+	configValues := []struct {
+		key   string
+		value interface{}
+	}{
+		{"gemini_api_key", apiKey},
+		{"gemini_model", DefaultGeminiModel},
+		{"max_tokens", DefaultMaxTokens},
+		{"request_timeout_seconds", DefaultTimeoutSecs},
+		{"auto_stage", DefaultAutoStage},
+		{"auto_push", DefaultAutoPush},
+		{"push_command", DefaultPushCommand},
+		{"verbose", DefaultVerbose},
+	}
+
+	for _, cv := range configValues {
+		switch v := cv.value.(type) {
+		case string:
+			if cv.key == "prompt" {
+				buf.WriteString("prompt = '''\n")
+				buf.WriteString(DefaultPrompt)
+				buf.WriteString("\n'''\n")
+			} else {
+				buf.WriteString(fmt.Sprintf("%s = %q\n", cv.key, v))
+			}
+		case int:
+			buf.WriteString(fmt.Sprintf("%s = %d\n", cv.key, v))
+		case bool:
+			buf.WriteString(fmt.Sprintf("%s = %v\n", cv.key, v))
+		}
+	}
+
+	return buf.Bytes()
+}
+
+// updateExistingConfigContent updates an existing config file's content with a new API key.
+func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte, error) {
+	// Decode into a generic map to preserve structure and comments
+	var cfgMap map[string]interface{}
+	if _, err := toml.Decode(string(existingContent), &cfgMap); err != nil {
+		return nil, fmt.Errorf("failed to decode existing config file for update: %w", err)
+	}
+
+	// Update the API key in the map
+	cfgMap["gemini_api_key"] = apiKey
+
+	// Create a buffer for the updated TOML content
+	var buf bytes.Buffer
+
+	// Write the configuration values
+	configKeys := []string{
+		"gemini_api_key", "gemini_model", "max_tokens", "request_timeout_seconds",
+		"auto_stage", "auto_push", "push_command", "verbose", "prompt",
+	}
+
+	for _, key := range configKeys {
+		value, exists := cfgMap[key]
+		if !exists {
+			continue
+		}
+
+		switch v := value.(type) {
+		case string:
+			if key == "prompt" {
+				buf.WriteString("prompt = '''\n")
+				buf.WriteString(v)
+				buf.WriteString("\n'''\n")
+			} else {
+				buf.WriteString(fmt.Sprintf("%s = %q\n", key, v))
+			}
+		case int64:
+			buf.WriteString(fmt.Sprintf("%s = %d\n", key, v))
+		case bool:
+			buf.WriteString(fmt.Sprintf("%s = %v\n", key, v))
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
 // SaveAPIKeyToUserConfig saves the provided API key to the user's configuration file.
 // If the file doesn't exist, it creates a new one using GenerateDefaultConfig format.
 // If the file exists, it preserves all other settings while updating the API key.
@@ -541,152 +736,24 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 	// Check if file exists
 	_, statErr := os.Stat(configPath)
 	if os.IsNotExist(statErr) {
-		// Create a buffer for the TOML content
-		var buf bytes.Buffer
-
-		// Write comments first
-		comments := []string{
-			"# Configuration file for yawn - AI Git Commiter using Google Gemini",
-			"#",
-			"# This file can be placed in:",
-			"# - ~/.config/yawn/config.toml (user config)",
-			"# - ./.yawn.toml (project config)",
-			"#",
-			"# Environment variables (YAWN_*) take precedence over this file",
-			"# Command line flags take precedence over environment variables",
-			"#",
-			"# Model configuration",
-			"#",
-			"# Git workflow configuration",
-			"#",
-			"# When auto_stage is true, all unstaged changes will be automatically staged",
-			"# When auto_stage is false and there are unstaged changes, you will be prompted to stage them",
-			"#",
-			"# Logging configuration",
-			"#",
-			"# Custom prompt for commit message generation",
-		}
-
-		for _, comment := range comments {
-			buf.WriteString(comment + "\n")
-		}
-		buf.WriteString("\n")
-
-		// Write the configuration values manually to ensure proper multiline string formatting
-		buf.WriteString(fmt.Sprintf("gemini_api_key = %q\n", apiKey))
-		buf.WriteString(fmt.Sprintf("gemini_model = %q\n", DefaultGeminiModel))
-		buf.WriteString(fmt.Sprintf("max_tokens = %d\n", DefaultMaxTokens))
-		buf.WriteString(fmt.Sprintf("request_timeout_seconds = %d\n", DefaultTimeoutSecs))
-		buf.WriteString(fmt.Sprintf("auto_stage = %v\n", DefaultAutoStage))
-		buf.WriteString(fmt.Sprintf("auto_push = %v\n", DefaultAutoPush))
-		buf.WriteString(fmt.Sprintf("push_command = %q\n", DefaultPushCommand))
-		buf.WriteString(fmt.Sprintf("verbose = %v\n", DefaultVerbose))
-
-		// Write the multiline prompt using TOML's multiline string syntax
-		buf.WriteString("prompt = '''\n")
-		buf.WriteString(DefaultPrompt)
-		buf.WriteString("\n'''\n")
-
-		configContent = buf.Bytes()
-
+		// Generate content for new config file
+		configContent = generateNewConfigContent(apiKey)
 	} else if statErr == nil {
-		// --- UPDATE existing config file ---
-		// Read the existing file content
+		// Read and update existing config file
 		existingContent, readErr := os.ReadFile(configPath)
 		if readErr != nil {
 			return fmt.Errorf("failed to read existing config file %s: %w", configPath, readErr)
 		}
 
-		// Decode into a generic map to preserve structure and comments as much as possible
-		var cfgMap map[string]interface{}
-		if _, err := toml.Decode(string(existingContent), &cfgMap); err != nil {
-			return fmt.Errorf("failed to decode existing config file %s for update: %w. Please check the file format", configPath, err)
+		configContent, err = updateExistingConfigContent(existingContent, apiKey)
+		if err != nil {
+			return err
 		}
-
-		// Update the API key in the map
-		cfgMap["gemini_api_key"] = apiKey
-
-		// Create a buffer for the updated TOML content
-		var buf bytes.Buffer
-
-		// Write the configuration values manually to ensure proper multiline string formatting
-		buf.WriteString(fmt.Sprintf("gemini_api_key = %q\n", apiKey))
-		if model, ok := cfgMap["gemini_model"].(string); ok {
-			buf.WriteString(fmt.Sprintf("gemini_model = %q\n", model))
-		}
-		if maxTokens, ok := cfgMap["max_tokens"].(int64); ok {
-			buf.WriteString(fmt.Sprintf("max_tokens = %d\n", maxTokens))
-		}
-		if timeout, ok := cfgMap["request_timeout_seconds"].(int64); ok {
-			buf.WriteString(fmt.Sprintf("request_timeout_seconds = %d\n", timeout))
-		}
-		if autoStage, ok := cfgMap["auto_stage"].(bool); ok {
-			buf.WriteString(fmt.Sprintf("auto_stage = %v\n", autoStage))
-		}
-		if autoPush, ok := cfgMap["auto_push"].(bool); ok {
-			buf.WriteString(fmt.Sprintf("auto_push = %v\n", autoPush))
-		}
-		if pushCommand, ok := cfgMap["push_command"].(string); ok {
-			buf.WriteString(fmt.Sprintf("push_command = %q\n", pushCommand))
-		}
-		if verbose, ok := cfgMap["verbose"].(bool); ok {
-			buf.WriteString(fmt.Sprintf("verbose = %v\n", verbose))
-		}
-
-		// Write the multiline prompt using TOML's multiline string syntax
-		if prompt, ok := cfgMap["prompt"].(string); ok {
-			buf.WriteString("prompt = '''\n")
-			buf.WriteString(prompt)
-			buf.WriteString("\n'''\n")
-		}
-
-		configContent = buf.Bytes()
-
 	} else {
 		// Other error checking the file
 		return fmt.Errorf("failed to check user config file %s: %w", configPath, statErr)
 	}
 
-	// --- Write the config content (either new or updated) ---
-	// Write to a temporary file first for atomicity
-	tmpFile, err := os.CreateTemp(dir, filepath.Base(configPath)+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create temporary config file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	// Ensure temp file is cleaned up on error
-	defer func() {
-		if err != nil { // Only remove if there was an error during write/rename
-			os.Remove(tmpPath)
-		}
-	}()
-
-	// Write content to temp file
-	if _, err = tmpFile.Write(configContent); err != nil {
-		tmpFile.Close() // Close even on write error
-		return fmt.Errorf("failed to write to temporary config file: %w", err)
-	}
-
-	// Close the temp file before renaming
-	if err = tmpFile.Close(); err != nil {
-		return fmt.Errorf("failed to close temporary config file: %w", err)
-	}
-
-	// Set restrictive permissions (read/write for owner only: 0600)
-	if err = os.Chmod(tmpPath, 0600); err != nil {
-		// Attempt to remove the temp file if chmod fails
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to set permissions on temporary config file: %w", err)
-	}
-
-	// Atomically replace the actual config file with the temporary file
-	if err = os.Rename(tmpPath, configPath); err != nil {
-		// Attempt to remove the temp file if rename fails
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to save config file (rename failed): %w", err)
-	}
-
-	// Reset err to nil on success before defer cleanup check
-	err = nil
-	return nil
+	// Write the config content atomically
+	return writeConfigFileAtomically(configContent, configPath)
 }

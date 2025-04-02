@@ -1,8 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/Mayurifag/yawn/internal/app"
@@ -83,18 +83,20 @@ variables (YAWN_*)`,
 		// Setup dependencies
 		gitClient, err := git.NewExecGitClient(cfg.Verbose)
 		if err != nil {
-			// Error already includes context from NewExecGitClient
-			fmt.Fprintf(os.Stderr, "Error initializing Git client: %v\n", err)
-			return err
+			return fmt.Errorf("failed to create git client: %w", err)
 		}
 
-		// Pass the potentially empty key, the client constructor handles it,
-		// and the App Run method will check/prompt later.
-		geminiClient := gemini.NewClient(finalAPIKey)
+		geminiClient, err := gemini.NewClient(finalAPIKey)
+		if err != nil {
+			return fmt.Errorf("failed to create Gemini client: %w", err)
+		}
 
 		// Create and run the application
 		yawnApp := app.NewApp(cfg, gitClient, geminiClient)
-		return yawnApp.Run(context.Background()) // Use background context for now
+		if err := yawnApp.Run(); err != nil {
+			log.Fatal(err)
+		}
+		return nil
 	},
 }
 
