@@ -17,6 +17,7 @@ type GitClient interface {
 	StageChanges() error
 	Commit(message string) error
 	Push(command string) error
+	HasRemotes() (bool, error)
 }
 
 // ExecGitClient implements GitClient using os/exec.
@@ -235,6 +236,34 @@ func (g *ExecGitClient) Push(command string) error {
 	return nil
 }
 
+// HasRemotes checks if the repository has any remote repositories configured.
+func (g *ExecGitClient) HasRemotes() (bool, error) {
+	if g.Verbose {
+		fmt.Fprintln(os.Stderr, "[GIT] Checking for remote repositories...")
+	}
+
+	output, err := g.runGitCommand("remote")
+	if err != nil {
+		// If the error is a GitError with exit code 128, it might mean we're not in a git repo
+		if gitErr, ok := err.(*GitError); ok && gitErr.ExitCode == 128 {
+			return false, fmt.Errorf("not a git repository: %w", err)
+		}
+		return false, fmt.Errorf("failed to check for remotes: %w", err)
+	}
+
+	// If output is empty, no remotes exist
+	hasRemotes := output != ""
+	if g.Verbose {
+		if hasRemotes {
+			fmt.Fprintf(os.Stderr, "[GIT] Found remote repositories: %s\n", output)
+		} else {
+			fmt.Fprintln(os.Stderr, "[GIT] No remote repositories found")
+		}
+	}
+
+	return hasRemotes, nil
+}
+
 // --- Mock Client for Testing ---
 
 // MockGitClient is a mock implementation of GitClient.
@@ -245,6 +274,7 @@ type MockGitClient struct {
 	MockStageChanges          func() error
 	MockCommit                func(message string) error
 	MockPush                  func(command string) error
+	MockHasRemotes            func() (bool, error)
 }
 
 func (m *MockGitClient) HasStagedChanges() (bool, error) {
@@ -287,4 +317,11 @@ func (m *MockGitClient) Push(command string) error {
 		return m.MockPush(command)
 	}
 	return nil
+}
+
+func (m *MockGitClient) HasRemotes() (bool, error) {
+	if m.MockHasRemotes != nil {
+		return m.MockHasRemotes()
+	}
+	return true, nil // Default to having remotes for testing flow
 }

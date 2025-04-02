@@ -190,18 +190,30 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	if shouldPush {
-		if a.Config.Verbose {
-			ui.PrintInfo(fmt.Sprintf("Pushing changes using command: %s", a.Config.PushCommand))
-		}
-		spinner := ui.StartSpinner("Pushing changes")
-		err = a.GitClient.Push(a.Config.PushCommand)
-		ui.StopSpinner(spinner)
-		ui.ClearLine()
+		// Check for remotes before attempting to push
+		hasRemotes, err := a.GitClient.HasRemotes()
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Failed to push changes: %v", err))
-			// Don't return error here, commit succeeded. Push failure is less critical.
+			ui.PrintError(fmt.Sprintf("Failed to check for remote repositories: %v", err))
+			// Continue without pushing, but log the error
+		} else if !hasRemotes {
+			ui.PrintInfo("No remote repositories configured. Skipping push.")
+			if a.Config.Verbose {
+				ui.PrintInfo("To push changes, add a remote repository using 'git remote add <name> <url>'")
+			}
 		} else {
-			ui.PrintSuccess("Changes pushed successfully.")
+			if a.Config.Verbose {
+				ui.PrintInfo(fmt.Sprintf("Pushing changes using command: %s", a.Config.PushCommand))
+			}
+			spinner := ui.StartSpinner("Pushing changes")
+			err = a.GitClient.Push(a.Config.PushCommand)
+			ui.StopSpinner(spinner)
+			ui.ClearLine()
+			if err != nil {
+				ui.PrintError(fmt.Sprintf("Failed to push changes: %v", err))
+				// Don't return error here, commit succeeded. Push failure is less critical.
+			} else {
+				ui.PrintSuccess("Changes pushed successfully.")
+			}
 		}
 	} else if a.Config.Verbose {
 		ui.PrintInfo("Skipping push based on config or user choice.")
