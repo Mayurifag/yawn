@@ -67,7 +67,7 @@ func AskForInput(prompt string, required bool) string {
 
 // PrintInfo displays an informational message.
 func PrintInfo(message string) {
-	fmt.Printf("%s %s\n", infoPrefix, message)
+	fmt.Printf("%s %s\n", infoPrefix, color.BlueString(message))
 }
 
 // PrintSuccess displays a success message.

@@ -14,6 +14,7 @@ type GitClient interface {
 	HasStagedChanges() (bool, error)
 	HasUncommittedChanges() (bool, error)
 	HasUnstagedChanges() (bool, error)
+	HasAnyChanges() (bool, error)
 	GetDiff() (string, error)
 	StageChanges() error
 	Commit(message string) error
@@ -148,6 +149,45 @@ func (c *ExecGitClient) HasUnstagedChanges() (bool, error) {
 	return false, nil
 }
 
+// HasAnyChanges checks if there are any changes (staged or unstaged) in the repository.
+// Returns true if there are either staged or unstaged changes, false otherwise.
+func (c *ExecGitClient) HasAnyChanges() (bool, error) {
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] Checking for any changes (staged or unstaged)...\n")
+	}
+
+	// First check for unstaged changes
+	hasUnstaged, err := c.HasUnstagedChanges()
+	if err != nil {
+		return false, fmt.Errorf("failed to check for unstaged changes: %w", err)
+	}
+
+	if hasUnstaged {
+		if c.Verbose {
+			fmt.Fprintf(os.Stderr, "[GIT] Found unstaged changes\n")
+		}
+		return true, nil
+	}
+
+	// If no unstaged changes, check for staged changes
+	hasStaged, err := c.HasStagedChanges()
+	if err != nil {
+		return false, fmt.Errorf("failed to check for staged changes: %w", err)
+	}
+
+	if hasStaged {
+		if c.Verbose {
+			fmt.Fprintf(os.Stderr, "[GIT] Found staged changes\n")
+		}
+		return true, nil
+	}
+
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] No changes found (neither staged nor unstaged)\n")
+	}
+	return false, nil
+}
+
 // GetDiff retrieves the diff of staged changes.
 // Returns the diff output as a string.
 func (c *ExecGitClient) GetDiff() (string, error) {
@@ -242,6 +282,7 @@ type MockGitClient struct {
 	MockHasStagedChanges      func() (bool, error)
 	MockHasUncommittedChanges func() (bool, error)
 	MockHasUnstagedChanges    func() (bool, error)
+	MockHasAnyChanges         func() (bool, error)
 	MockGetDiff               func() (string, error)
 	MockStageChanges          func() error
 	MockCommit                func(message string) error
@@ -271,6 +312,13 @@ func (m *MockGitClient) HasUnstagedChanges() (bool, error) {
 		return m.MockHasUnstagedChanges()
 	}
 	return false, fmt.Errorf("mock HasUnstagedChanges not implemented")
+}
+
+func (m *MockGitClient) HasAnyChanges() (bool, error) {
+	if m.MockHasAnyChanges != nil {
+		return m.MockHasAnyChanges()
+	}
+	return false, fmt.Errorf("mock HasAnyChanges not implemented")
 }
 
 func (m *MockGitClient) GetDiff() (string, error) {

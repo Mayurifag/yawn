@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/Mayurifag/yawn/internal/app"
 	"github.com/Mayurifag/yawn/internal/config"
 	"github.com/Mayurifag/yawn/internal/git"
+	"github.com/Mayurifag/yawn/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -47,7 +47,7 @@ variables (YAWN_*)`,
 		if flagGenerateConfig {
 			defaultToml, err := config.GenerateDefaultConfig()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error generating default config: %v\n", err)
+				ui.PrintError(fmt.Sprintf("Error generating default config: %v", err))
 				return err
 			}
 			fmt.Println(defaultToml)
@@ -57,7 +57,7 @@ variables (YAWN_*)`,
 		// Determine project path (current directory)
 		projectPath, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting current directory: %v\n", err)
+			ui.PrintError(fmt.Sprintf("Error getting current directory: %v", err))
 			return err
 		}
 
@@ -80,20 +80,22 @@ variables (YAWN_*)`,
 
 		cfg, err := config.LoadConfig(projectPath, flagVerbose, flagAPIKey, flagAutoStage, flagAutoPush, flagsSpecified...)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
+			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
 			return err
 		}
 
 		// Setup git client
 		gitClient, err := git.NewExecGitClient(cfg.Verbose)
 		if err != nil {
-			return fmt.Errorf("failed to create git client: %w", err)
+			ui.PrintError(fmt.Sprintf("Failed to create git client: %v", err))
+			return err
 		}
 
 		// Create and run the application
 		yawnApp := app.NewApp(cfg, gitClient)
 		if err := yawnApp.Run(); err != nil {
-			log.Fatal(err)
+			ui.PrintError(err.Error())
+			os.Exit(1)
 		}
 		return nil
 	},

@@ -31,7 +31,7 @@ func NewApp(cfg config.Config, gitClient git.GitClient) *App {
 // setupAndCheckPrerequisites performs initial setup and checks:
 // - Starts verbose logging
 // - Ensures API key is available
-// - Checks for uncommitted changes
+// - Checks for changes (staged or unstaged)
 // Returns whether there are changes and any error encountered.
 func (a *App) setupAndCheckPrerequisites() (bool, error) {
 	if a.Config.Verbose {
@@ -40,7 +40,7 @@ func (a *App) setupAndCheckPrerequisites() (bool, error) {
 
 	// Check for API key
 	if a.Config.GeminiAPIKey == "" {
-		fmt.Fprintln(os.Stderr, "No API key found. Please provide your Google Gemini API key.")
+		ui.PrintInfo("No API key found. Please provide your Google Gemini API key.")
 		fmt.Fprintln(os.Stderr, "You can get one from: https://makersuite.google.com/app/apikey")
 		apiKey := ui.AskForInput("Enter your Google Gemini API key: ", true)
 		if apiKey == "" {
@@ -50,18 +50,22 @@ func (a *App) setupAndCheckPrerequisites() (bool, error) {
 		// Save the API key to user config
 		if err := config.SaveAPIKeyToUserConfig(apiKey); err != nil {
 			// Log error but continue since we have the key in memory
-			fmt.Fprintf(os.Stderr, "Warning: Failed to save API key to config file: %v\n", err)
+			ui.PrintError(fmt.Sprintf("Warning: Failed to save API key to config file: %v", err))
 		}
 		a.Config.GeminiAPIKey = apiKey
 	}
 
-	// Check for uncommitted changes
-	hasChanges, err := a.GitClient.HasUncommittedChanges()
+	// Check for any changes (staged or unstaged)
+	hasChanges, err := a.GitClient.HasAnyChanges()
 	if err != nil {
-		return false, fmt.Errorf("failed to check for uncommitted changes: %w", err)
+		return false, fmt.Errorf("failed to check for changes: %w", err)
 	}
 	if !hasChanges {
 		return false, fmt.Errorf("no changes to commit")
+	}
+
+	if a.Config.Verbose {
+		fmt.Fprintf(os.Stderr, "[APP] Found changes to commit\n")
 	}
 
 	return true, nil
@@ -72,7 +76,22 @@ func (a *App) setupAndCheckPrerequisites() (bool, error) {
 // Otherwise, prompts the user to stage changes if needed.
 // Returns an error if staging fails or is declined when required.
 func (a *App) ensureStagedChanges() error {
-	// First check for unstaged changes
+	// First check if there are already staged changes
+	hasStaged, err := a.GitClient.HasStagedChanges()
+	if err != nil {
+		return fmt.Errorf("failed to check for staged changes: %w", err)
+	}
+
+	if a.Config.Verbose {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Initial check - Has staged changes: %v\n", hasStaged)
+	}
+
+	// I want to stage changes, even if we have already something staged.
+	// if hasStaged {
+	// 	return nil
+	// }
+
+	// If no staged changes, check for unstaged changes
 	hasUnstaged, err := a.GitClient.HasUnstagedChanges()
 	if err != nil {
 		return fmt.Errorf("failed to check for unstaged changes: %w", err)
@@ -105,13 +124,13 @@ func (a *App) ensureStagedChanges() error {
 	}
 
 	// Verify we have staged changes after potential staging
-	hasStaged, err := a.GitClient.HasStagedChanges()
+	hasStaged, err = a.GitClient.HasStagedChanges()
 	if err != nil {
 		return fmt.Errorf("failed to check for staged changes: %w", err)
 	}
 
 	if a.Config.Verbose {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Has staged changes: %v\n", hasStaged)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Final check - Has staged changes: %v\n", hasStaged)
 	}
 
 	if !hasStaged {
@@ -196,14 +215,13 @@ func (a *App) handlePushOperation() error {
 		return fmt.Errorf("failed to check for remote repositories: %w", err)
 	}
 	if !hasRemotes {
-		return fmt.Errorf("no remote repositories configured. Add one using 'git remote add <name> <url>'")
+		return fmt.Errorf("no remote repositories configured. Add one using 'git remote add <n> <url>'")
 	}
 
 	// Execute push command
 	spinner := ui.StartSpinner("Pushing changes...")
 	result, err := a.Pusher.ExecutePush(a.Config.PushCommand)
 	ui.StopSpinner(spinner)
-	ui.ClearLine()
 
 	if err != nil {
 		return fmt.Errorf("failed to push changes: %w", err)
@@ -215,7 +233,7 @@ func (a *App) handlePushOperation() error {
 	// Report success and repository link if available
 	ui.PrintSuccess("Successfully pushed changes.")
 	if result.RepoLink != "" {
-		fmt.Fprintf(os.Stderr, "View your repository: %s\n", result.RepoLink)
+		ui.PrintInfo(fmt.Sprintf("View your repository: %s", result.RepoLink))
 	}
 
 	return nil
@@ -229,6 +247,7 @@ func (a *App) Run() error {
 		return err
 	}
 	if !hasChanges {
+		ui.PrintInfo("No changes detected for commit.")
 		return nil // No changes to commit
 	}
 
