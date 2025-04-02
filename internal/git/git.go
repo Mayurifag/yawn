@@ -123,12 +123,12 @@ func (g *ExecGitClient) HasUncommittedChanges() (bool, error) {
 	return output != "", nil
 }
 
-// GetDiff gets the diff of all tracked, uncommitted changes (staged and unstaged).
+// GetDiff gets the diff of staged changes that will be included in the next commit.
 // It ignores files matching the provided glob patterns.
 func (g *ExecGitClient) GetDiff(ignorePatterns []string) (string, error) {
-	// We want the diff of *all* changes (staged and unstaged) relative to HEAD.
-	// `git diff HEAD` achieves this.
-	args := []string{"diff", "HEAD"}
+	// We want the diff of staged changes only, which is what will be committed.
+	// `git diff --cached` shows changes staged for the next commit.
+	args := []string{"diff", "--cached"}
 
 	// Add pathspecs to exclude ignored patterns
 	// Note: Simple glob matching might not cover all gitignore capabilities.
@@ -147,14 +147,35 @@ func (g *ExecGitClient) GetDiff(ignorePatterns []string) (string, error) {
 		}
 	}
 
+	// Enhanced verbose logging for the exact command being executed
+	if g.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] Getting diff of staged changes with command: git %s\n", strings.Join(args, " "))
+	}
+
 	diff, err := g.runGitCommand(args...)
 	if err != nil {
-		// It's possible `git diff HEAD` returns an error if HEAD doesn't exist (new repo)
+		// It's possible `git diff --cached` returns an error if there are no staged changes
 		// Or if there are no changes (though usually just empty output).
 		// Let's check for specific known non-fatal errors if needed.
 		// For now, return the error.
-		return "", fmt.Errorf("failed to get git diff: %w", err)
+		return "", fmt.Errorf("failed to get git diff of staged changes: %w", err)
 	}
+
+	// Enhanced verbose logging for the obtained diff
+	if g.Verbose {
+		if diff == "" {
+			fmt.Fprintln(os.Stderr, "[GIT] No staged changes found after applying ignore patterns.")
+		} else {
+			// Log a summary of the diff to avoid excessive output
+			lines := strings.Split(diff, "\n")
+			if len(lines) > 10 {
+				fmt.Fprintf(os.Stderr, "[GIT] Obtained diff of %d lines (showing first 10):\n%s\n...\n", len(lines), strings.Join(lines[:10], "\n"))
+			} else {
+				fmt.Fprintf(os.Stderr, "[GIT] Obtained diff of %d lines:\n%s\n", len(lines), diff)
+			}
+		}
+	}
+
 	return diff, nil
 }
 
@@ -176,30 +197,13 @@ func (g *ExecGitClient) StageChanges() error {
 }
 
 // Commit creates a commit with the given message.
-// It implicitly commits all tracked, modified files (`-a` flag equivalent behavior).
-// Since we generate the message based on `git diff HEAD`, we should commit *all* those changes.
-// `git commit -m` only commits *staged* changes by default.
-// To commit all tracked changes shown in `git diff HEAD`, we should stage them first.
+// It commits only the currently staged changes.
+// The caller is responsible for ensuring changes are staged before calling this method.
 func (g *ExecGitClient) Commit(message string) error {
-	// Stage all tracked changes first to match the diff we analyzed
-	_, err := g.runGitCommand("add", "-u") // Stage modified/deleted tracked files
+	// Commit the staged changes
+	_, err := g.runGitCommand("commit", "-m", message)
 	if err != nil {
-		// Check if it's just "nothing to stage" which is okay if only untracked were changed (and ignored)
-		// This might need more robust handling based on git output.
-		// For now, proceed, commit might fail if nothing is staged.
-		if g.Verbose {
-			fmt.Fprintf(os.Stderr, "[GIT] Warning: 'git add -u' reported potential issue (maybe nothing tracked to stage?): %v\n", err)
-		}
-		// Let's not return error here, let commit fail if truly nothing staged.
-		// return fmt.Errorf("failed to stage changes before commit: %w", err)
-	}
-	// Consider staging *new* tracked files too? `git add .` is broader.
-	// Let's stick to `git add -u` for now, assuming user stages new files manually if desired.
-
-	// Now commit the staged changes
-	_, err = g.runGitCommand("commit", "-m", message)
-	if err != nil {
-		// Check for "nothing to commit" error, which might happen if `git add -u` staged nothing
+		// Check for "nothing to commit" error, which might happen if nothing is staged
 		if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added to commit") {
 			fmt.Fprintln(os.Stderr, "[GIT] Warning: No changes were staged for commit.")
 			return nil // Not a fatal error for yawn's flow
