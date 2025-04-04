@@ -75,13 +75,15 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 ## Roadmap
 
-* [ ] Add PrintInfo for situations when staged changes. Also yawn has to print info about stage/push automatically due to configs
+* [x] Add PrintInfo for situations when staged changes. Also yawn has to print info about stage/push automatically due to configs
 * [ ] Release 1.0.0 when it will be mature enough
 * [ ] Make installation easier for all OSes (i.e. homebrew installation) and README.md better
 * [ ] In final result give link to user's PR or project page. Make that for github, gitlab (also private ones)
 * [x] Wait and add more free AI API providers, who dont ask for credit card
   * I don't know anyone for now, but will add more here probably
 * [ ] Replace EstimateTokenCount implementation in internal/gemini/client.go with calls to c.client.CountTokens(ctx, modelName, genai.Text(text))
+* [ ] Show token count for user, changed files, changed lines probably
+* [ ] Make a non default feature: wait until `ssh-add -l` will show keys - for keepassxc ssh agent usage
 * [ ] Remove verbose mode
 * [ ] Dockerfile -> release it -> add alias to README.md
 
