@@ -203,15 +203,6 @@ func (a *App) generateAndCommitChanges(ctx context.Context) error {
 // - Reports success/failure
 // Returns an error if any step fails.
 func (a *App) handlePushOperation() error {
-	// Check if push is needed
-	if !a.Config.AutoPush {
-		if !ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), true) {
-			return nil // User declined push
-		}
-	} else {
-		ui.PrintInfo(fmt.Sprintf("Auto-pushing changes (enabled via %s)...", a.Config.GetConfigSource("AutoPush")))
-	}
-
 	// Check for remotes
 	hasRemotes, err := a.Pusher.HasRemotes()
 	if err != nil {
@@ -220,6 +211,15 @@ func (a *App) handlePushOperation() error {
 	if !hasRemotes {
 		ui.PrintInfo("No remote repositories configured. Push operation will be skipped.")
 		return nil
+	}
+
+	// Check if push is needed
+	if !a.Config.AutoPush {
+		if !ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), true) {
+			return nil // User declined push
+		}
+	} else {
+		ui.PrintInfo(fmt.Sprintf("Auto-pushing changes (enabled via %s)...", a.Config.GetConfigSource("AutoPush")))
 	}
 
 	// Execute push command
