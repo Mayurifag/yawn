@@ -477,10 +477,15 @@ func ensureUserConfigDir() (string, error) {
 
 // GetRequestTimeout converts the config seconds to time.Duration.
 func (c Config) GetRequestTimeout() time.Duration {
-	if c.RequestTimeoutSeconds <= 0 {
-		return time.Duration(DefaultTimeoutSecs) * time.Second // Fallback to default if invalid
-	}
 	return time.Duration(c.RequestTimeoutSeconds) * time.Second
+}
+
+// GetConfigSource returns the source of a configuration option (default, user, project, env, flag)
+func (c Config) GetConfigSource(option string) string {
+	if source, ok := c.sources[option]; ok {
+		return source
+	}
+	return "unknown"
 }
 
 // GenerateConfigContent generates the configuration content in TOML format.

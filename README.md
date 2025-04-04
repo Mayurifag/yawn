@@ -5,13 +5,13 @@
 [![CI](https://github.com/Mayurifag/yawn/actions/workflows/ci.yml/badge.svg)](https://github.com/Mayurifag/yawn/actions/workflows/ci.yml)
 [![Release](https://github.com/Mayurifag/yawn/actions/workflows/release.yml/badge.svg)](https://github.com/Mayurifag/yawn/actions/workflows/release.yml)
 
-**Writing Git commit messages makes you yawn?** 🥱 Here is a tool that will stage/commit/push for you with a single yolo push button!
+**Writing Git commit messages makes you yawn?** 🥱 Here is a tool that will stage/commit/push for you!
 
 ---
 
 ## Why Yawn?
 
-`yawn` is designed for speed and simplicity. In its most basic form, you make changes, run `yawn`, and boom – your code is staged (if needed), committed with a smart AI-generated message, and optionally pushed. All in one go!
+In its most basic form, you make changes, run `yawn`, and boom – your code is staged (if needed), committed with AI-generated message, and pushed. All in one go!
 
 But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customizable**:
 
@@ -35,7 +35,8 @@ Requires Go 1.24+. Make sure `$GOPATH/bin` or `$HOME/go/bin` is in your `PATH`.
 Run: `go install github.com/Mayurifag/yawn/cmd/yawn@latest`
 
 There are also pre-compiled binaries in packages, yet I am too lazy to write
-instructions to install them in Windows, MacOS and Linux.
+instructions to install them in Windows, MacOS and Linux. Yeah, those `curl`
+ones.
 
 Pro-tip: `alias q="yawn"` is very useful, add it after first tries + config
 adaptations and your workflow will be changed forever. 😉
@@ -74,6 +75,7 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 ## Roadmap
 
+* [ ] Add PrintInfo for situations when staged changes. Also yawn has to print info about stage/push automatically due to configs
 * [ ] Release 1.0.0 when it will be mature enough
 * [ ] Make installation easier for all OSes (i.e. homebrew installation) and README.md better
 * [ ] In final result give link to user's PR or project page. Make that for github, gitlab (also private ones)

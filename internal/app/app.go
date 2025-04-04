@@ -107,6 +107,7 @@ func (a *App) ensureStagedChanges() error {
 			if a.Config.Verbose {
 				fmt.Fprintf(os.Stderr, "[DEBUG] Auto-staging enabled, staging all changes\n")
 			}
+			ui.PrintInfo(fmt.Sprintf("Auto-staging changes (enabled via %s)...", a.Config.GetConfigSource("AutoStage")))
 			if err := a.GitClient.StageChanges(); err != nil {
 				return fmt.Errorf("failed to stage changes: %w", err)
 			}
@@ -207,6 +208,8 @@ func (a *App) handlePushOperation() error {
 		if !ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), true) {
 			return nil // User declined push
 		}
+	} else {
+		ui.PrintInfo(fmt.Sprintf("Auto-pushing changes (enabled via %s)...", a.Config.GetConfigSource("AutoPush")))
 	}
 
 	// Check for remotes
