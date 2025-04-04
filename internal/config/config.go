@@ -289,7 +289,7 @@ func applyUserConfig(cfg *Config) error {
 		return nil
 	}
 
-	mergeConfig(cfg, userCfg, userMeta, "user")
+	mergeConfig(cfg, userCfg, userMeta, "user home config")
 
 	return nil
 }
