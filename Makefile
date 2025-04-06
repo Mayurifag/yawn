@@ -22,11 +22,11 @@ GORUN := $(GO) run
 all: build
 
 # Build the application
-build: fmt lint
+build: fmt lint test
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(OUTPUT_DIR)/$(APP_NAME) $(CMD_PATH)
 
 # Install the application to GOBIN
-install: fmt lint
+install: fmt lint test
 	@echo "==> Installing $(APP_NAME) to $(GOBIN)..."
 	@mkdir -p $(GOBIN)
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOBIN)/$(APP_NAME) $(CMD_PATH)
