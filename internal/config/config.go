@@ -28,13 +28,15 @@ const (
 	DefaultWaitForSSHKeys = false
 	DefaultPrompt         = `Generate a commit message.
 
-- Fully follow Conventional Commits (https://www.conventionalcommits.org/en/v1.0.0/). ALWAYS follow Conventional Commits specification.
+- Fully follow Conventional Commits (https://www.conventionalcommits.org/en/v1.0.0/). ALWAYS follow Conventional Commits specification
 - Do not use gitmoji
 - If there are multiple changes, try to mention them all in the commit message in body, divide them into separate bullet points (one per -)
 - Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line
-- Do not use formatting for output, just the commit message itself. Don't use ticks or other formatting symbols, only text of commit, no commentaries after or before message.
-- Preserve newlines in the commit body. Each bullet point should be on its own line.
-- The body should be separated from the description by a blank line.
+- Do not use formatting for output, just the commit message itself. Don't use ticks or other formatting symbols, only text of commit, no commentaries after or before message
+- That is nice to use filenames inside body or description, if it is relevant to the changes, just be sure to use it just like text, no backticks or else
+- Preserve newlines in the commit body. Each bullet point should be on its own line
+- The body should be separated from the description by a blank line
+- Description has to start with lowercase letter to preserve consistancy between different commits
 
 Structure of output:
 <type>[optional scope]: <description>

@@ -84,7 +84,7 @@ This project is released into the public domain under The Unlicense. See the [LI
   * I don't know anyone for now, but will add more here probably
 * [ ] Replace EstimateTokenCount implementation in internal/gemini/client.go with calls to c.client.CountTokens(ctx, modelName, genai.Text(text))
 * [ ] Show token count for user, changed files, changed lines probably
-* [ ] Make a non default feature: wait until `ssh-add -l` will show keys - for keepassxc ssh agent usage
+* [x] Make a non default feature: wait until `ssh-add -l` will show keys - for keepassxc ssh agent usage
 * [ ] Remove verbose mode
 * [ ] Dockerfile -> release it -> add alias to README.md
 * [ ] Migrate to <https://github.com/knadh/koanf> for config handling
