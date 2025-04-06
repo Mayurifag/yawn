@@ -13,19 +13,20 @@ import (
 )
 
 const (
-	AppName            = "yawn"
-	ProjectConfigName  = ".yawn.toml"
-	UserConfigDirName  = "yawn"
-	UserConfigFileName = "config.toml"
-	EnvPrefix          = "YAWN_"
-	DefaultGeminiModel = "gemini-2.0-flash-lite"
-	DefaultMaxTokens   = 1000000
-	DefaultTimeoutSecs = 10
-	DefaultAutoStage   = false
-	DefaultAutoPush    = false
-	DefaultPushCommand = "git push origin HEAD"
-	DefaultVerbose     = false
-	DefaultPrompt      = `Generate a commit message.
+	AppName               = "yawn"
+	ProjectConfigName     = ".yawn.toml"
+	UserConfigDirName     = "yawn"
+	UserConfigFileName    = "config.toml"
+	EnvPrefix             = "YAWN_"
+	DefaultGeminiModel    = "gemini-2.0-flash-lite"
+	DefaultMaxTokens      = 1000000
+	DefaultTimeoutSecs    = 10
+	DefaultAutoStage      = false
+	DefaultAutoPush       = false
+	DefaultPushCommand    = "git push origin HEAD"
+	DefaultVerbose        = false
+	DefaultWaitForSSHKeys = false
+	DefaultPrompt         = `Generate a commit message.
 
 - Fully follow Conventional Commits (https://www.conventionalcommits.org/en/v1.0.0/). ALWAYS follow Conventional Commits specification.
 - Do not use gitmoji
@@ -71,6 +72,7 @@ type Config struct {
 	AutoPush              bool   `toml:"auto_push"`
 	PushCommand           string `toml:"push_command"`
 	Verbose               bool   `toml:"verbose"`
+	WaitForSSHKeys        bool   `toml:"wait_for_ssh_keys"`
 
 	sources map[string]string `toml:"-"` // Key: field name, Value: source (default, user, project, env, flag)
 }
@@ -320,6 +322,7 @@ func defaultConfig() Config {
 		AutoPush:              DefaultAutoPush,
 		PushCommand:           DefaultPushCommand,
 		Verbose:               DefaultVerbose,
+		WaitForSSHKeys:        DefaultWaitForSSHKeys,
 		// API Key has no default
 	}
 }
@@ -364,6 +367,10 @@ func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, sour
 	if metadata.IsDefined("verbose") {
 		baseCfg.Verbose = loadedCfg.Verbose
 		baseCfg.sources["Verbose"] = source
+	}
+	if metadata.IsDefined("wait_for_ssh_keys") {
+		baseCfg.WaitForSSHKeys = loadedCfg.WaitForSSHKeys
+		baseCfg.sources["WaitForSSHKeys"] = source
 	}
 }
 
@@ -435,6 +442,10 @@ func loadConfigFromEnv(cfg *Config) {
 	if verbose, ok := getBoolEnv("VERBOSE"); ok {
 		cfg.Verbose = verbose
 		cfg.sources["Verbose"] = "env"
+	}
+	if waitForSSHKeys, ok := getBoolEnv("WAIT_FOR_SSH_KEYS"); ok {
+		cfg.WaitForSSHKeys = waitForSSHKeys
+		cfg.sources["WaitForSSHKeys"] = "env"
 	}
 }
 
@@ -519,6 +530,7 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 		"auto_push":               DefaultAutoPush,
 		"push_command":            DefaultPushCommand,
 		"verbose":                 DefaultVerbose,
+		"wait_for_ssh_keys":       DefaultWaitForSSHKeys,
 	}
 
 	// Only include API key if it's provided
@@ -606,6 +618,7 @@ func toMap(c Config) map[string]interface{} {
 		"AutoPush":              c.AutoPush,
 		"PushCommand":           c.PushCommand,
 		"Verbose":               c.Verbose,
+		"WaitForSSHKeys":        c.WaitForSSHKeys,
 	}
 }
 
@@ -618,7 +631,7 @@ func logConfigSources(cfg Config) {
 	// Define desired order
 	orderedKeys := []string{
 		"GeminiAPIKey", "GeminiModel", "MaxTokens", "RequestTimeoutSeconds",
-		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose",
+		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose", "WaitForSSHKeys",
 	}
 	// Use ordered keys if they exist in sources
 	processedKeys := make(map[string]bool)
@@ -732,7 +745,7 @@ func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte,
 	// Write the configuration values
 	configKeys := []string{
 		"gemini_api_key", "gemini_model", "max_tokens", "request_timeout_seconds",
-		"auto_stage", "auto_push", "push_command", "verbose", "prompt",
+		"auto_stage", "auto_push", "push_command", "verbose", "prompt", "wait_for_ssh_keys",
 	}
 
 	for _, key := range configKeys {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Mayurifag/yawn/internal/config"
 	"github.com/Mayurifag/yawn/internal/gemini"
@@ -220,6 +221,46 @@ func (a *App) handlePushOperation() error {
 		}
 	} else {
 		ui.PrintInfo(fmt.Sprintf("Auto-pushing changes (enabled via %s)...", a.Config.GetConfigSource("AutoPush")))
+	}
+
+	// Wait for SSH keys if configured
+	if a.Config.WaitForSSHKeys {
+		// Check if SSH keys are available
+		keysAvailable, err := git.CheckSSHKeysAvailable()
+		if err != nil {
+			if strings.Contains(err.Error(), "ssh-add command not found") {
+				ui.PrintError(fmt.Sprintf("Error: %v", err))
+				ui.PrintInfo("Please install ssh-add or disable the wait_for_ssh_keys option.")
+				return err
+			}
+			ui.PrintError(fmt.Sprintf("Error checking SSH keys: %v", err))
+			ui.PrintInfo("Continuing with push operation...")
+		} else if !keysAvailable {
+			ui.PrintInfo(fmt.Sprintf("Waiting for SSH keys to become available (enabled via %s)... Press CTRL+C to cancel.", a.Config.GetConfigSource("WaitForSSHKeys")))
+
+			// Start a spinner
+			spinner := ui.StartSpinner("Checking for SSH keys...")
+
+			// Wait until keys become available
+			for !keysAvailable {
+				// Wait for 0.5 seconds before checking again
+				time.Sleep(500 * time.Millisecond)
+
+				// Check if keys are now available
+				keysAvailable, err = git.CheckSSHKeysAvailable()
+				if err != nil {
+					ui.StopSpinner(spinner)
+					ui.PrintError(fmt.Sprintf("Error checking SSH keys: %v", err))
+					break
+				}
+
+				if keysAvailable {
+					ui.StopSpinner(spinner)
+					ui.PrintSuccess("SSH keys detected.")
+					break
+				}
+			}
+		}
 	}
 
 	// Execute push command

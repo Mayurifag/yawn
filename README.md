@@ -54,6 +54,7 @@ Want to tweak things? `yawn` is flexible!
     *   `ask_stage`: Set to `false` to never stage automatically.
     *   `auto_push`: Set to `true` to always push after commit.
     *   `push_command`: Change how `yawn` pushes (e.g., `git push --no-verify origin HEAD`).
+    *   `wait_for_ssh_keys`: Set to `true` to make yawn wait until SSH keys are available via `ssh-add -l` before pushing. Useful for workflows involving tools like KeePassXC where the agent might not have keys immediately. Defaults to `false`.
 
 Place your customizations in `./.yawn.toml` (project-specific) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
 
@@ -86,5 +87,7 @@ This project is released into the public domain under The Unlicense. See the [LI
 * [ ] Make a non default feature: wait until `ssh-add -l` will show keys - for keepassxc ssh agent usage
 * [ ] Remove verbose mode
 * [ ] Dockerfile -> release it -> add alias to README.md
+* [ ] Migrate to <https://github.com/knadh/koanf> for config handling
+* [ ] Add more CI tests
 
 Actually, I do not plan much features. Project considered as done.

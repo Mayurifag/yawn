@@ -41,6 +41,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, DefaultPushCommand, cfg.PushCommand)
 	assert.Equal(t, DefaultVerbose, cfg.Verbose)
 	assert.Equal(t, DefaultPrompt, cfg.Prompt)
+	assert.Equal(t, DefaultWaitForSSHKeys, cfg.WaitForSSHKeys)
 
 	// Verify sources map
 	assert.Equal(t, "default", cfg.sources["GeminiModel"])
@@ -51,6 +52,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, "default", cfg.sources["PushCommand"])
 	assert.Equal(t, "default", cfg.sources["Verbose"])
 	assert.Equal(t, "default", cfg.sources["Prompt"])
+	assert.Equal(t, "default", cfg.sources["WaitForSSHKeys"])
 }
 
 // TestLoadConfig_UserOverride tests that user configuration overrides defaults.
@@ -148,6 +150,7 @@ push_command = "git push user-origin"
 gemini_model = "gemini-project-model"
 request_timeout_seconds = 30
 push_command = "git push project-origin"
+wait_for_ssh_keys = true
 `
 	err = os.WriteFile(projectConfigPath, []byte(projectConfigContent), 0600)
 	require.NoError(t, err)
@@ -165,6 +168,7 @@ push_command = "git push project-origin"
 	assert.Equal(t, "gemini-project-model", cfg.GeminiModel)
 	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)
 	assert.Equal(t, "git push project-origin", cfg.PushCommand)
+	assert.Equal(t, true, cfg.WaitForSSHKeys)
 
 	// Assert user-overridden values (not overridden by project)
 	assert.Equal(t, 500, cfg.MaxTokens)
@@ -232,6 +236,7 @@ request_timeout_seconds = 30
 	t.Setenv("YAWN_GEMINI_MODEL", "gemini-env-model")
 	t.Setenv("YAWN_MAX_TOKENS", "1500")
 	t.Setenv("YAWN_AUTO_PUSH", "true")
+	t.Setenv("YAWN_WAIT_FOR_SSH_KEYS", "true")
 
 	// Call LoadConfig with project path but no flags
 	cfg, err := LoadConfig(tempProjectDir, false, "", false, false)
@@ -241,6 +246,7 @@ request_timeout_seconds = 30
 	assert.Equal(t, "gemini-env-model", cfg.GeminiModel)
 	assert.Equal(t, 1500, cfg.MaxTokens)
 	assert.Equal(t, true, cfg.AutoPush)
+	assert.Equal(t, true, cfg.WaitForSSHKeys)
 
 	// Assert project-overridden values (not overridden by env)
 	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)
