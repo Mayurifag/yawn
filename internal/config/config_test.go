@@ -102,9 +102,9 @@ auto_stage = true
 	assert.Equal(t, DefaultVerbose, cfg.Verbose)
 
 	// Verify sources map
-	assert.Equal(t, "user", cfg.sources["GeminiModel"])
-	assert.Equal(t, "user", cfg.sources["MaxTokens"])
-	assert.Equal(t, "user", cfg.sources["AutoStage"])
+	assert.Equal(t, "user home config", cfg.sources["GeminiModel"])
+	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
+	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
 	assert.Equal(t, "default", cfg.sources["RequestTimeoutSeconds"])
 	assert.Equal(t, "default", cfg.sources["AutoPush"])
 	assert.Equal(t, "default", cfg.sources["PushCommand"])
@@ -178,8 +178,8 @@ push_command = "git push project-origin"
 	assert.Equal(t, "project", cfg.sources["GeminiModel"])
 	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
 	assert.Equal(t, "project", cfg.sources["PushCommand"])
-	assert.Equal(t, "user", cfg.sources["MaxTokens"])
-	assert.Equal(t, "user", cfg.sources["AutoStage"])
+	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
+	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
 	assert.Equal(t, "default", cfg.sources["AutoPush"])
 	assert.Equal(t, "default", cfg.sources["Verbose"])
 }
@@ -257,7 +257,7 @@ request_timeout_seconds = 30
 	assert.Equal(t, "env", cfg.sources["MaxTokens"])
 	assert.Equal(t, "env", cfg.sources["AutoPush"])
 	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
-	assert.Equal(t, "user", cfg.sources["AutoStage"])
+	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
 	assert.Equal(t, "default", cfg.sources["PushCommand"])
 	assert.Equal(t, "default", cfg.sources["Verbose"])
 }
@@ -341,7 +341,7 @@ auto_stage = true
 	assert.Equal(t, "flag", cfg.sources["AutoPush"])
 	assert.Equal(t, "env", cfg.sources["GeminiModel"])
 	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
-	assert.Equal(t, "user", cfg.sources["MaxTokens"])
+	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
 	assert.Equal(t, "default", cfg.sources["PushCommand"])
 }
 
