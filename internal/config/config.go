@@ -33,14 +33,10 @@ const (
 - Description, type and scope have to start with lowercase letter
 - Use only these types: fix, feat, docs, style, refactor, perf, test, build, ci, chore
 - Scope should be a noun describing a section of the codebase (e.g., api, core, ui, auth)
-- Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line. Keep description under 50 characters and focused on ONE primary change
-- For multiple unrelated changes, focus description on the most significant change and list others in the body, divide them into separate bullet points (one per -)
-- That is nice to use filenames inside body or description, if it is relevant to the changes, just be sure to use it just like text, do not highlight them, do not use formatting, etc.
-- Each bullet point in the body should:
-  - Start with a verb in imperative form, with a capital letter
-  - Be concise (under 80 characters per line, multiline is allowed)
-  - Describe WHY in addition to WHAT when relevant
+- Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line. Keep description under 50 characters and focused on ONE primary change, even if changes were unrelated
+- Body should consist of some text, describing WHY and WHAT was done. Add blank line after that and then list all changes in bullet points (one per -), starting with capital letter. Try to add info about why changes were done, if it is relevant.
 - The body should be separated from the description by a blank line
+- That is nice to use filenames inside body or description, if it is relevant to the changes, just be sure to use it just like text, do not highlight them, do not use formatting, etc.
 - Never use gitmoji
 - Only output the commit message TEXT, which does NOT contain backticks symbols, quotes or other formatting symbols, message will be parsed. No commentaries after or before message
 
