@@ -18,7 +18,7 @@ const (
 	UserConfigDirName     = "yawn"
 	UserConfigFileName    = "config.toml"
 	EnvPrefix             = "YAWN_"
-	DefaultGeminiModel    = "gemini-2.0-flash-lite"
+	DefaultGeminiModel    = "gemini-1.5-flash"
 	DefaultMaxTokens      = 1000000
 	DefaultTimeoutSecs    = 10
 	DefaultAutoStage      = false
@@ -28,13 +28,13 @@ const (
 	DefaultWaitForSSHKeys = false
 	DefaultPrompt         = `Generate a commit message.
 
-- Fully follow Conventional Commits (https://www.conventionalcommits.org/en/v1.0.0/). ALWAYS follow Conventional Commits specification
+- Fully follow Conventional Commits (https://www.conventionalcommits.org/en/v1.0.0/). ALWAYS follow Conventional Commits specification. Also cheatsheet https://gist.github.com/qoomon/5dfcdf8eec66a051ecd85625518cfd13
 - Do not use gitmoji
 - If there are multiple changes, try to mention them all in the commit message in body, divide them into separate bullet points (one per -)
 - Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line
 - Do not use formatting for output, just the commit message itself. Don't use ticks or other formatting symbols, only text of commit, no commentaries after or before message
 - That is nice to use filenames inside body or description, if it is relevant to the changes, just be sure to use it just like text, no backticks or else
-- Preserve newlines in the commit body. Each bullet point should be on its own line
+- Preserve newlines in the commit body. Each bullet point should be on its own line. Use the imperative, present tense: "Change" not "changed" nor "changes". Capitalize the first letter
 - The body should be separated from the description by a blank line
 - Description has to start with lowercase letter to preserve consistancy between different commits
 
