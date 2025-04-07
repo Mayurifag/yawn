@@ -149,9 +149,10 @@ func TestGenaiClient_GenerateCommitMessage_TokenLimit(t *testing.T) {
 	// We'll make a diff that's artificially large for testing
 	// For testing the if (totalTokens > maxTokens) condition
 	largeDiff := strings.Repeat("Line of code change\n", 1000)
-	maxTokens := 500 // Small max tokens to ensure we exceed it
+	maxTokens := 500            // Small max tokens to ensure we exceed it
+	temperature := float32(0.1) // Default temperature
 
-	message, err := client.GenerateCommitMessage(ctx, model, prompt, largeDiff, maxTokens)
+	message, err := client.GenerateCommitMessage(ctx, model, prompt, largeDiff, maxTokens, temperature)
 
 	// Verify the error
 	assert.Empty(t, message)
@@ -233,7 +234,7 @@ func TestMockGeminiClient(t *testing.T) {
 	mockClient := &MockGeminiClient{}
 
 	t.Run("default GenerateCommitMessage", func(t *testing.T) {
-		msg, err := mockClient.GenerateCommitMessage(context.Background(), "", "", "", 0)
+		msg, err := mockClient.GenerateCommitMessage(context.Background(), "", "", "", 0, 0.1)
 		assert.NoError(t, err)
 		assert.Contains(t, msg, "feat: add new feature")
 	})
@@ -244,10 +245,10 @@ func TestMockGeminiClient(t *testing.T) {
 	})
 
 	t.Run("custom GenerateCommitMessage", func(t *testing.T) {
-		mockClient.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
+		mockClient.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 			return "custom message", nil
 		}
-		msg, err := mockClient.GenerateCommitMessage(context.Background(), "", "", "", 0)
+		msg, err := mockClient.GenerateCommitMessage(context.Background(), "", "", "", 0, 0.1)
 		assert.NoError(t, err)
 		assert.Equal(t, "custom message", msg)
 	})
@@ -271,7 +272,7 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 		{
 			name: "token limit error",
 			setupMock: func(m *MockGeminiClient) {
-				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
+				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 					return "", NewGeminiError(ErrTokenLimit, "token limit exceeded", nil)
 				}
 			},
@@ -286,7 +287,7 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 		{
 			name: "authentication error",
 			setupMock: func(m *MockGeminiClient) {
-				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
+				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 					return "", NewGeminiError(ErrAuth, "invalid API key", nil)
 				}
 			},
@@ -301,7 +302,7 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 		{
 			name: "rate limit error",
 			setupMock: func(m *MockGeminiClient) {
-				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
+				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 					return "", NewGeminiError(ErrRateLimit, "rate limit exceeded", nil)
 				}
 			},
@@ -316,7 +317,7 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 		{
 			name: "safety error",
 			setupMock: func(m *MockGeminiClient) {
-				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
+				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 					return "", NewGeminiError(ErrSafety, "content blocked for safety reasons", nil)
 				}
 			},
@@ -331,7 +332,7 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 		{
 			name: "empty response error",
 			setupMock: func(m *MockGeminiClient) {
-				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
+				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 					return "", NewGeminiError(ErrEmptyResponse, "received empty response", nil)
 				}
 			},
@@ -346,7 +347,7 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 		{
 			name: "generic API error",
 			setupMock: func(m *MockGeminiClient) {
-				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
+				m.GenerateCommitMessageFunc = func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 					return "", fmt.Errorf("failed to generate commit message: %w", errors.New("some API error"))
 				}
 			},
@@ -369,6 +370,7 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 				"Generate commit for {{Diff}}",
 				"test diff",
 				1000,
+				0.1, // Default temperature
 			)
 
 			tc.checkResult(t, message, err)

@@ -159,7 +159,7 @@ func (a *App) generateAndCommitChanges(ctx context.Context) error {
 	defer cancel()
 
 	spinner := ui.StartSpinner("Generating commit message...")
-	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens)
+	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens, a.Config.Temperature)
 	ui.StopSpinner(spinner)
 	ui.ClearLine()
 
