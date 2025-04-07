@@ -42,6 +42,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, DefaultVerbose, cfg.Verbose)
 	assert.Equal(t, DefaultPrompt, cfg.Prompt)
 	assert.Equal(t, DefaultWaitForSSHKeys, cfg.WaitForSSHKeys)
+	assert.Equal(t, DefaultTemperature, cfg.Temperature)
 
 	// Verify sources map
 	assert.Equal(t, "default", cfg.sources["GeminiModel"])
@@ -53,6 +54,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, "default", cfg.sources["Verbose"])
 	assert.Equal(t, "default", cfg.sources["Prompt"])
 	assert.Equal(t, "default", cfg.sources["WaitForSSHKeys"])
+	assert.Equal(t, "default", cfg.sources["Temperature"])
 }
 
 // TestLoadConfig_UserOverride tests that user configuration overrides defaults.
@@ -84,6 +86,7 @@ func TestLoadConfig_UserOverride(t *testing.T) {
 gemini_model = "gemini-user-model"
 max_tokens = 500
 auto_stage = true
+temperature = 0.8
 `
 	err := os.WriteFile(userConfigPath, []byte(userConfigContent), 0600)
 	require.NoError(t, err)
@@ -96,6 +99,7 @@ auto_stage = true
 	assert.Equal(t, "gemini-user-model", cfg.GeminiModel)
 	assert.Equal(t, 500, cfg.MaxTokens)
 	assert.Equal(t, true, cfg.AutoStage)
+	assert.Equal(t, float32(0.8), cfg.Temperature)
 
 	// Assert defaults for non-overridden values
 	assert.Equal(t, DefaultTimeoutSecs, cfg.RequestTimeoutSeconds)
@@ -107,6 +111,7 @@ auto_stage = true
 	assert.Equal(t, "user home config", cfg.sources["GeminiModel"])
 	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
 	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
+	assert.Equal(t, "user home config", cfg.sources["Temperature"])
 	assert.Equal(t, "default", cfg.sources["RequestTimeoutSeconds"])
 	assert.Equal(t, "default", cfg.sources["AutoPush"])
 	assert.Equal(t, "default", cfg.sources["PushCommand"])
@@ -151,6 +156,7 @@ gemini_model = "gemini-project-model"
 request_timeout_seconds = 30
 push_command = "git push project-origin"
 wait_for_ssh_keys = true
+temperature = 0.5
 `
 	err = os.WriteFile(projectConfigPath, []byte(projectConfigContent), 0600)
 	require.NoError(t, err)
@@ -169,6 +175,7 @@ wait_for_ssh_keys = true
 	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)
 	assert.Equal(t, "git push project-origin", cfg.PushCommand)
 	assert.Equal(t, true, cfg.WaitForSSHKeys)
+	assert.Equal(t, float32(0.5), cfg.Temperature)
 
 	// Assert user-overridden values (not overridden by project)
 	assert.Equal(t, 500, cfg.MaxTokens)
@@ -182,6 +189,7 @@ wait_for_ssh_keys = true
 	assert.Equal(t, "project", cfg.sources["GeminiModel"])
 	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
 	assert.Equal(t, "project", cfg.sources["PushCommand"])
+	assert.Equal(t, "project", cfg.sources["Temperature"])
 	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
 	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
 	assert.Equal(t, "default", cfg.sources["AutoPush"])
@@ -237,6 +245,7 @@ request_timeout_seconds = 30
 	t.Setenv("YAWN_MAX_TOKENS", "1500")
 	t.Setenv("YAWN_AUTO_PUSH", "true")
 	t.Setenv("YAWN_WAIT_FOR_SSH_KEYS", "true")
+	t.Setenv("YAWN_TEMPERATURE", "0.7")
 
 	// Call LoadConfig with project path but no flags
 	cfg, err := LoadConfig(tempProjectDir, false, "", false, false)
@@ -247,6 +256,7 @@ request_timeout_seconds = 30
 	assert.Equal(t, 1500, cfg.MaxTokens)
 	assert.Equal(t, true, cfg.AutoPush)
 	assert.Equal(t, true, cfg.WaitForSSHKeys)
+	assert.Equal(t, float32(0.7), cfg.Temperature)
 
 	// Assert project-overridden values (not overridden by env)
 	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)
@@ -262,6 +272,8 @@ request_timeout_seconds = 30
 	assert.Equal(t, "env", cfg.sources["GeminiModel"])
 	assert.Equal(t, "env", cfg.sources["MaxTokens"])
 	assert.Equal(t, "env", cfg.sources["AutoPush"])
+	assert.Equal(t, "env", cfg.sources["WaitForSSHKeys"])
+	assert.Equal(t, "env", cfg.sources["Temperature"])
 	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
 	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
 	assert.Equal(t, "default", cfg.sources["PushCommand"])

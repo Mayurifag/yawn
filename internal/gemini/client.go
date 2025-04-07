@@ -15,7 +15,7 @@ import (
 
 // Client defines the interface for interacting with the Gemini API.
 type Client interface {
-	GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error)
+	GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
 	EstimateTokenCount(text string) int
 }
 
@@ -165,9 +165,9 @@ func cleanCommitMessage(message string) string {
 }
 
 // GenerateCommitMessage generates a commit message using the Gemini API.
-// It takes the model name, prompt template, diff content, and max tokens as parameters.
+// It takes the model name, prompt template, diff content, max tokens, and temperature as parameters.
 // Returns the generated message and any error encountered.
-func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int) (string, error) {
+func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
 	// Estimate total token count
 	promptTokens := estimateTokenCount(promptTemplate)
 	diffTokens := estimateTokenCount(diff)
@@ -184,6 +184,10 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 
 	// Create the model
 	model := c.client.GenerativeModel(modelName)
+
+	// Set temperature for generation
+	temp := temperature // Create a copy for the pointer
+	model.SetTemperature(temp)
 
 	// Build the final prompt
 	finalPrompt := strings.Replace(promptTemplate, "{{Diff}}", diff, 1)
@@ -286,13 +290,13 @@ func (c *GenaiClient) EstimateTokenCount(text string) int {
 
 // MockGeminiClient is a mock implementation of Client.
 type MockGeminiClient struct {
-	GenerateCommitMessageFunc func(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error)
+	GenerateCommitMessageFunc func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
 	EstimateTokenCountFunc    func(text string) int
 }
 
-func (m *MockGeminiClient) GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int) (string, error) {
+func (m *MockGeminiClient) GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 	if m.GenerateCommitMessageFunc != nil {
-		return m.GenerateCommitMessageFunc(ctx, model, promptTemplate, diff, maxTokens)
+		return m.GenerateCommitMessageFunc(ctx, model, promptTemplate, diff, maxTokens, temperature)
 	}
 	return "feat: add new feature\n\nImplement the feature based on the diff.", nil
 }

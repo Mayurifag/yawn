@@ -26,17 +26,23 @@ const (
 	DefaultPushCommand    = "git push origin HEAD"
 	DefaultVerbose        = false
 	DefaultWaitForSSHKeys = false
+	DefaultTemperature    = 0.1
 	DefaultPrompt         = `Generate a commit message.
 
-- Fully follow Conventional Commits (https://www.conventionalcommits.org/en/v1.0.0/). ALWAYS follow Conventional Commits specification. Also cheatsheet https://gist.github.com/qoomon/5dfcdf8eec66a051ecd85625518cfd13
-- Do not use gitmoji
-- If there are multiple changes, try to mention them all in the commit message in body, divide them into separate bullet points (one per -)
-- Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line. It has to be the most important and descriptive part.
-- Do not use formatting for output, just the commit message itself. Don't use ticks or other formatting symbols, only text of commit, no commentaries after or before message
-- That is nice to use filenames inside body or description, if it is relevant to the changes, just be sure to use it just like text, no backticks or else
-- Preserve newlines in the commit body. Each bullet point should be on its own line. Use the imperative, present tense: "Change" not "changed" nor "changes". Capitalize the first letter
+- ALWAYS follow Conventional Commits specification (https://www.conventionalcommits.org/en/v1.0.0/)
+- Description, type and scope have to start with lowercase letter
+- Use only these types: fix, feat, docs, style, refactor, perf, test, build, ci, chore
+- Scope should be a noun describing a section of the codebase (e.g., api, core, ui, auth)
+- Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line. Keep description under 50 characters and focused on ONE primary change
+- For multiple unrelated changes, focus description on the most significant change and list others in the body, divide them into separate bullet points (one per -)
+- That is nice to use filenames inside body or description, if it is relevant to the changes, just be sure to use it just like text, do not highlight them, do not use formatting, etc.
+- Each bullet point in the body should:
+  - Start with a verb in imperative form, with a capital letter
+  - Be concise (under 80 characters per line, multiline is allowed)
+  - Describe WHY in addition to WHAT when relevant
 - The body should be separated from the description by a blank line
-- Description has to start with lowercase letter to preserve consistancy between different commits
+- Never use gitmoji
+- Only output the commit message TEXT, which does NOT contain backticks symbols, quotes or other formatting symbols, message will be parsed. No commentaries after or before message
 
 Structure of output:
 <type>[optional scope]: <description>
@@ -46,14 +52,12 @@ Structure of output:
 [optional footer(s)]
 
 Here are some example outputs (goes until ---):
-fix: prevent racing of requests
+fix(api): prevent racing of requests
 
-- Introduce a request id and a reference to latest request. Dismiss
-incoming responses other than from latest request.
-- Remove timeouts which were used to mitigate the racing issue but are
-obsolete now.
+- Introduce a request id and a reference to latest request. Dismiss incoming responses other than from latest request.
+- Remove timeouts which were used to mitigate the racing issue but are obsolete now.
 ---
-feat: allow provided config object to extend other configs
+feat!: allow provided config object to extend other configs
 
 BREAKING CHANGE: 'extends' key in config file is now used for extending other config files
 ---
@@ -65,16 +69,17 @@ Here is the diff to analyze:
 
 // Config holds the application configuration. Fields must be exported for TOML decoding.
 type Config struct {
-	GeminiAPIKey          string `toml:"gemini_api_key"`
-	GeminiModel           string `toml:"gemini_model"`
-	MaxTokens             int    `toml:"max_tokens"`
-	RequestTimeoutSeconds int    `toml:"request_timeout_seconds"`
-	Prompt                string `toml:"prompt,multiline"`
-	AutoStage             bool   `toml:"auto_stage"`
-	AutoPush              bool   `toml:"auto_push"`
-	PushCommand           string `toml:"push_command"`
-	Verbose               bool   `toml:"verbose"`
-	WaitForSSHKeys        bool   `toml:"wait_for_ssh_keys"`
+	GeminiAPIKey          string  `toml:"gemini_api_key"`
+	GeminiModel           string  `toml:"gemini_model"`
+	MaxTokens             int     `toml:"max_tokens"`
+	RequestTimeoutSeconds int     `toml:"request_timeout_seconds"`
+	Prompt                string  `toml:"prompt,multiline"`
+	AutoStage             bool    `toml:"auto_stage"`
+	AutoPush              bool    `toml:"auto_push"`
+	PushCommand           string  `toml:"push_command"`
+	Verbose               bool    `toml:"verbose"`
+	WaitForSSHKeys        bool    `toml:"wait_for_ssh_keys"`
+	Temperature           float32 `toml:"temperature"`
 
 	sources map[string]string `toml:"-"` // Key: field name, Value: source (default, user, project, env, flag)
 }
@@ -325,6 +330,7 @@ func defaultConfig() Config {
 		PushCommand:           DefaultPushCommand,
 		Verbose:               DefaultVerbose,
 		WaitForSSHKeys:        DefaultWaitForSSHKeys,
+		Temperature:           DefaultTemperature,
 		// API Key has no default
 	}
 }
@@ -374,6 +380,10 @@ func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, sour
 		baseCfg.WaitForSSHKeys = loadedCfg.WaitForSSHKeys
 		baseCfg.sources["WaitForSSHKeys"] = source
 	}
+	if metadata.IsDefined("temperature") {
+		baseCfg.Temperature = loadedCfg.Temperature
+		baseCfg.sources["Temperature"] = source
+	}
 }
 
 func loadConfigFromEnv(cfg *Config) {
@@ -406,6 +416,19 @@ func loadConfigFromEnv(cfg *Config) {
 			return 0, false
 		}
 		return i, true
+	}
+
+	// Helper to get float env var
+	getFloatEnv := func(key string) (float32, bool) {
+		val := getEnv(key)
+		if val == "" {
+			return 0, false
+		}
+		f, err := strconv.ParseFloat(val, 32)
+		if err != nil {
+			return 0, false
+		}
+		return float32(f), true
 	}
 
 	// Load from environment variables
@@ -448,6 +471,10 @@ func loadConfigFromEnv(cfg *Config) {
 	if waitForSSHKeys, ok := getBoolEnv("WAIT_FOR_SSH_KEYS"); ok {
 		cfg.WaitForSSHKeys = waitForSSHKeys
 		cfg.sources["WaitForSSHKeys"] = "env"
+	}
+	if temperature, ok := getFloatEnv("TEMPERATURE"); ok {
+		cfg.Temperature = temperature
+		cfg.sources["Temperature"] = "env"
 	}
 }
 
@@ -533,6 +560,7 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 		"push_command":            DefaultPushCommand,
 		"verbose":                 DefaultVerbose,
 		"wait_for_ssh_keys":       DefaultWaitForSSHKeys,
+		"temperature":             DefaultTemperature, // Controls randomness in generation (0.0-1.0)
 	}
 
 	// Only include API key if it's provided
@@ -621,6 +649,7 @@ func toMap(c Config) map[string]interface{} {
 		"PushCommand":           c.PushCommand,
 		"Verbose":               c.Verbose,
 		"WaitForSSHKeys":        c.WaitForSSHKeys,
+		"Temperature":           c.Temperature,
 	}
 }
 
@@ -633,7 +662,7 @@ func logConfigSources(cfg Config) {
 	// Define desired order
 	orderedKeys := []string{
 		"GeminiAPIKey", "GeminiModel", "MaxTokens", "RequestTimeoutSeconds",
-		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose", "WaitForSSHKeys",
+		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose", "WaitForSSHKeys", "Temperature",
 	}
 	// Use ordered keys if they exist in sources
 	processedKeys := make(map[string]bool)
@@ -747,7 +776,7 @@ func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte,
 	// Write the configuration values
 	configKeys := []string{
 		"gemini_api_key", "gemini_model", "max_tokens", "request_timeout_seconds",
-		"auto_stage", "auto_push", "push_command", "verbose", "prompt", "wait_for_ssh_keys",
+		"auto_stage", "auto_push", "push_command", "verbose", "prompt", "wait_for_ssh_keys", "temperature",
 	}
 
 	for _, key := range configKeys {
@@ -767,6 +796,8 @@ func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte,
 			}
 		case int64:
 			buf.WriteString(fmt.Sprintf("%s = %d\n", key, v))
+		case float64:
+			buf.WriteString(fmt.Sprintf("%s = %g\n", key, v))
 		case bool:
 			buf.WriteString(fmt.Sprintf("%s = %v\n", key, v))
 		}

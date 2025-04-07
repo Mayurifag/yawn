@@ -87,12 +87,6 @@ func (a *App) ensureStagedChanges() error {
 		fmt.Fprintf(os.Stderr, "[DEBUG] Initial check - Has staged changes: %v\n", hasStaged)
 	}
 
-	// I want to stage changes, even if we have already something staged.
-	// if hasStaged {
-	// 	return nil
-	// }
-
-	// If no staged changes, check for unstaged changes
 	hasUnstaged, err := a.GitClient.HasUnstagedChanges()
 	if err != nil {
 		return fmt.Errorf("failed to check for unstaged changes: %w", err)
@@ -114,7 +108,6 @@ func (a *App) ensureStagedChanges() error {
 			}
 			ui.PrintSuccess("Successfully staged changes.")
 		} else {
-			// Prompt user to stage changes
 			if !ui.AskYesNo("You have unstaged changes. Would you like to stage them?", true) {
 				return fmt.Errorf("staging required to proceed")
 			}
