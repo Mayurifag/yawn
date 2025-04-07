@@ -61,6 +61,7 @@ func (e *GitError) Error() string {
 func (c *ExecGitClient) runGitCommand(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = c.RepoPath
+	cmd.Env = append(os.Environ(), "GIT_PAGER=cat")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -83,7 +84,7 @@ func (c *ExecGitClient) HasStagedChanges() (bool, error) {
 	if c.Verbose {
 		fmt.Fprintf(os.Stderr, "[GIT] Checking for staged changes...\n")
 	}
-	_, err := c.runGitCommand("diff", "--cached", "--quiet")
+	_, err := c.runGitCommand("diff", "--cached", "--no-color", "--quiet")
 	if err != nil {
 		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
 			// Exit code 1 with no output means there are staged changes
@@ -106,7 +107,7 @@ func (c *ExecGitClient) HasUncommittedChanges() (bool, error) {
 	if c.Verbose {
 		fmt.Fprintf(os.Stderr, "[GIT] Checking for uncommitted changes...\n")
 	}
-	_, err := c.runGitCommand("diff", "--quiet")
+	_, err := c.runGitCommand("diff", "--no-color", "--quiet")
 	if err != nil {
 		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
 			// Exit code 1 with no output means there are uncommitted changes
@@ -131,7 +132,7 @@ func (c *ExecGitClient) HasUnstagedChanges() (bool, error) {
 	}
 	// Use git diff --quiet to check for unstaged changes
 	// Exit code 1 (with empty output) means there are unstaged changes
-	_, err := c.runGitCommand("diff", "--quiet")
+	_, err := c.runGitCommand("diff", "--no-color", "--quiet")
 	if err != nil {
 		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
 			// Exit code 1 with no output means there are unstaged changes
@@ -191,7 +192,7 @@ func (c *ExecGitClient) HasAnyChanges() (bool, error) {
 // GetDiff retrieves the diff of staged changes.
 // Returns the diff output as a string.
 func (c *ExecGitClient) GetDiff() (string, error) {
-	output, err := c.runGitCommand("diff", "--cached")
+	output, err := c.runGitCommand("diff", "--cached", "--no-color")
 	if err != nil {
 		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
 			// Exit code 1 with no output means no changes
