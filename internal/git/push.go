@@ -6,22 +6,10 @@ import (
 	"strings"
 )
 
-// HostingProvider represents a Git hosting service.
-type HostingProvider string
-
-const (
-	// ProviderGitHub represents GitHub hosting service
-	ProviderGitHub HostingProvider = "github"
-	// ProviderGitLab represents GitLab hosting service
-	ProviderGitLab HostingProvider = "gitlab"
-	// ProviderUnknown represents an unsupported or unknown hosting service
-	ProviderUnknown HostingProvider = "unknown"
-)
-
 // RemoteInfo contains parsed information about a Git remote URL.
 type RemoteInfo struct {
-	// Provider is the identified hosting provider
-	Provider HostingProvider
+	// Host is the hostname of the remote (e.g., github.com)
+	Host string
 	// Owner is the repository owner/namespace
 	Owner string
 	// Repo is the repository name (without .git extension)
@@ -30,41 +18,44 @@ type RemoteInfo struct {
 	URL string
 }
 
-// GenerateRepoLink creates a web URL for the repository based on the provider and repository path.
-func GenerateRepoLink(provider HostingProvider, owner, repo string) string {
+// GenerateRepoLink creates a web URL for the repository based on the host, owner and repo.
+func GenerateRepoLink(host, owner, repo string) string {
+	if host == "" || owner == "" || repo == "" {
+		return ""
+	}
+
 	// Remove .git suffix if present
 	repo = strings.TrimSuffix(repo, ".git")
 
-	switch provider {
-	case ProviderGitHub:
-		return fmt.Sprintf("https://github.com/%s/%s", owner, repo)
-	case ProviderGitLab:
-		return fmt.Sprintf("https://gitlab.com/%s/%s", owner, repo)
-	default:
-		return ""
-	}
+	return fmt.Sprintf("https://%s/%s/%s", host, owner, repo)
 }
 
-// ParseRemoteURL parses a Git remote URL and returns information about the hosting provider and repository.
+// ParseRemoteURL parses a Git remote URL and returns information about the host and repository.
 // It supports both HTTPS and SSH URL formats:
-// - HTTPS: https://github.com/owner/repo.git
-// - SSH: git@github.com:owner/repo.git
+// - HTTPS: https://host.com/owner/repo.git
+// - SSH (git@): git@host.com:owner/repo.git
+// - SSH (ssh://): ssh://user@host.com:port/owner/repo.git
 func ParseRemoteURL(remoteURL string) (*RemoteInfo, error) {
 	if remoteURL == "" {
 		return nil, fmt.Errorf("remote URL is empty")
 	}
 
-	// Handle SSH URLs
+	// Handle SSH URLs with git@ prefix
 	if strings.HasPrefix(remoteURL, "git@") {
-		return parseSSHURL(remoteURL)
+		return parseGitAtSSHURL(remoteURL)
+	}
+
+	// Handle SSH URLs with ssh:// prefix
+	if strings.HasPrefix(remoteURL, "ssh://") {
+		return parseSSHProtocolURL(remoteURL)
 	}
 
 	// Handle HTTPS URLs
 	return parseHTTPSURL(remoteURL)
 }
 
-// parseSSHURL parses a Git SSH URL (git@host:owner/repo.git).
-func parseSSHURL(remoteURL string) (*RemoteInfo, error) {
+// parseGitAtSSHURL parses a Git SSH URL (git@host:owner/repo.git).
+func parseGitAtSSHURL(remoteURL string) (*RemoteInfo, error) {
 	// Remove git@ prefix
 	url := strings.TrimPrefix(remoteURL, "git@")
 
@@ -77,8 +68,36 @@ func parseSSHURL(remoteURL string) (*RemoteInfo, error) {
 	host := parts[0]
 	path := parts[1]
 
-	// Remove .git suffix if present
-	path = strings.TrimSuffix(path, ".git")
+	// Split path into owner and repo
+	pathParts := strings.Split(path, "/")
+	if len(pathParts) != 2 {
+		return nil, fmt.Errorf("invalid repository path format: %s", path)
+	}
+
+	return &RemoteInfo{
+		Host:  host,
+		Owner: pathParts[0],
+		Repo:  strings.TrimSuffix(pathParts[1], ".git"),
+		URL:   remoteURL,
+	}, nil
+}
+
+// parseSSHProtocolURL parses a Git SSH URL with protocol (ssh://user@host:port/owner/repo.git).
+func parseSSHProtocolURL(remoteURL string) (*RemoteInfo, error) {
+	// Parse the URL
+	parsedURL, err := url.Parse(remoteURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse SSH URL: %w", err)
+	}
+
+	// Extract host (remove port if present)
+	host := parsedURL.Host
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+
+	// Clean the path (remove leading slash and .git suffix)
+	path := strings.TrimPrefix(parsedURL.Path, "/")
 
 	// Split path into owner and repo
 	pathParts := strings.Split(path, "/")
@@ -86,16 +105,11 @@ func parseSSHURL(remoteURL string) (*RemoteInfo, error) {
 		return nil, fmt.Errorf("invalid repository path format: %s", path)
 	}
 
-	provider := identifyProvider(host)
-	if provider == ProviderUnknown {
-		return nil, fmt.Errorf("unsupported hosting provider: %s", host)
-	}
-
 	return &RemoteInfo{
-		Provider: provider,
-		Owner:    pathParts[0],
-		Repo:     pathParts[1],
-		URL:      remoteURL,
+		Host:  host,
+		Owner: pathParts[0],
+		Repo:  strings.TrimSuffix(pathParts[1], ".git"),
+		URL:   remoteURL,
 	}, nil
 }
 
@@ -106,39 +120,21 @@ func parseHTTPSURL(remoteURL string) (*RemoteInfo, error) {
 		return nil, fmt.Errorf("failed to parse HTTPS URL: %w", err)
 	}
 
-	// Remove .git suffix if present
-	path := strings.TrimSuffix(parsedURL.Path, ".git")
+	// Clean the path (remove leading slash)
+	path := strings.TrimPrefix(parsedURL.Path, "/")
 
 	// Split path into owner and repo
-	pathParts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	pathParts := strings.Split(path, "/")
 	if len(pathParts) != 2 {
 		return nil, fmt.Errorf("invalid repository path format: %s", path)
 	}
 
-	provider := identifyProvider(parsedURL.Host)
-	if provider == ProviderUnknown {
-		return nil, fmt.Errorf("unsupported hosting provider: %s", parsedURL.Host)
-	}
-
 	return &RemoteInfo{
-		Provider: provider,
-		Owner:    pathParts[0],
-		Repo:     pathParts[1],
-		URL:      remoteURL,
+		Host:  parsedURL.Host,
+		Owner: pathParts[0],
+		Repo:  strings.TrimSuffix(pathParts[1], ".git"),
+		URL:   remoteURL,
 	}, nil
-}
-
-// identifyProvider determines the hosting provider from a hostname.
-func identifyProvider(host string) HostingProvider {
-	host = strings.ToLower(host)
-	switch {
-	case strings.Contains(host, "github.com"):
-		return ProviderGitHub
-	case strings.Contains(host, "gitlab.com"):
-		return ProviderGitLab
-	default:
-		return ProviderUnknown
-	}
 }
 
 // PushResult contains information about the push operation.
@@ -208,11 +204,11 @@ func (p *Pusher) ExecutePush(command string) (*PushResult, error) {
 	remoteURL, err := p.gitClient.GetRemoteURL("")
 	if err == nil {
 		result.RemoteURL = remoteURL
-		// Parse the remote URL to get provider and repository information
+		// Parse the remote URL to get host and repository information
 		if remoteInfo, err := ParseRemoteURL(remoteURL); err == nil {
 			result.RemoteInfo = remoteInfo
 			// Generate the repository link
-			result.RepoLink = GenerateRepoLink(remoteInfo.Provider, remoteInfo.Owner, remoteInfo.Repo)
+			result.RepoLink = GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo)
 		}
 	}
 
