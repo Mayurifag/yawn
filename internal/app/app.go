@@ -271,7 +271,7 @@ func (a *App) handlePushOperation() error {
 	// Report success and repository link if available
 	ui.PrintSuccess("Successfully pushed changes.")
 	if result.RepoLink != "" {
-		ui.PrintRepoLink("View your repository:", result.RepoLink)
+		ui.PrintRepoLink("View repository:", result.RepoLink)
 	}
 
 	return nil

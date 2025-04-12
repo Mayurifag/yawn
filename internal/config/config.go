@@ -30,15 +30,16 @@ const (
 	DefaultPrompt         = `Generate a commit message.
 
 - ALWAYS follow Conventional Commits specification (https://www.conventionalcommits.org/en/v1.0.0/)
-- Description, type and scope have to start with lowercase letter
+- Description, type and scope must start with a lowercase letter
 - Use only these types: fix, feat, docs, style, refactor, perf, test, build, ci, chore
 - Scope should be a noun describing a section of the codebase (e.g., api, core, ui, auth)
-- Try to make meangingful description of the changes, think why changes were done and make it single bullet point for description line. Keep description under 50 characters and focused on ONE primary change, even if changes were unrelated
-- Body should consist of some text, describing WHY and WHAT was done. Add blank line after that and then list all changes in bullet points (one per -), starting with capital letter. Try to add info about why changes were done, if it is relevant.
-- The body should be separated from the description by a blank line
-- That is nice to use filenames inside body or description, if it is relevant to the changes, just be sure to use it just like text, do not highlight them, do not use formatting, etc.
+- Write a precise description capturing the primary intent of the changes, explaining WHY they were made. Keep it under 50 characters, focusing on ONE main change, even if changes are unrelated. Use specific nouns and verbs relevant to the diff.
+- Prefer terminology used in the diff or context for consistency.
+- Body starts with a brief paragraph (1-2 sentences) explaining WHY and WHAT was done, providing context for the changes. Follow with a blank line, then list all changes as bullet points (one per -), starting with a capital letter. Each bullet should describe a specific change and, where relevant, include a brief reason (e.g., "to improve X" or "for better Y").
+- Ensure the body’s introductory text expands on, but does not repeat, the description line. Provide unique context or details about WHY and WHAT was done.
+- Use filenames in body or description if relevant, treating them as plain text without formatting.
 - Never use gitmoji
-- Only output the commit message TEXT, which does NOT contain backticks symbols, quotes or other formatting symbols, message will be parsed. No commentaries after or before message
+- Only output the commit message TEXT, which does NOT contain backticks, quotes, or other formatting symbols. No commentaries before or after the message.
 
 Structure of output:
 <type>[optional scope]: <description>
@@ -47,11 +48,15 @@ Structure of output:
 
 [optional footer(s)]
 
-Here are some example outputs (goes until ---):
-fix(api): prevent racing of requests
+Here are example outputs (until ---):
+refactor(interactors): simplify strategies generation
 
-- Introduce a request id and a reference to latest request. Dismiss incoming responses other than from latest request.
-- Remove timeouts which were used to mitigate the racing issue but are obsolete now.
+Simplified the strategy generation process to improve maintainability and readability by using a single orchestrator.
+
+- Replaced StrategyGeneratorInteractor with StrategyGenerationOrchestrator to centralize logic.
+- Removed MultiprocessingStrategyGenerator to reduce complexity.
+- Created ParallelBacktestExecutor for efficient backtesting.
+- Added ResultsProcessor to handle result storage.
 ---
 feat!: allow provided config object to extend other configs
 
