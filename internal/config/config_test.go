@@ -42,7 +42,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, DefaultVerbose, cfg.Verbose)
 	assert.Equal(t, DefaultPrompt, cfg.Prompt)
 	assert.Equal(t, DefaultWaitForSSHKeys, cfg.WaitForSSHKeys)
-	assert.Equal(t, float32(DefaultTemperature), cfg.Temperature)
+	assert.Equal(t, DefaultTemperature, cfg.Temperature)
 
 	// Verify sources map
 	assert.Equal(t, "default", cfg.sources["GeminiModel"])

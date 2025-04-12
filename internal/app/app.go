@@ -18,80 +18,15 @@ type App struct {
 	Config    config.Config
 	GitClient git.GitClient
 	Pusher    git.PushProvider
-
-	// For testing purposes
-	generateAndCommitChangesFunc func(ctx context.Context) error
 }
 
 // NewApp creates a new App instance.
 func NewApp(cfg config.Config, gitClient git.GitClient) *App {
-	app := &App{
+	return &App{
 		Config:    cfg,
 		GitClient: gitClient,
 		Pusher:    git.NewPusher(gitClient),
 	}
-	app.generateAndCommitChangesFunc = app.defaultGenerateAndCommitChanges
-	return app
-}
-
-// defaultGenerateAndCommitChanges is the default implementation of generateAndCommitChanges.
-func (a *App) defaultGenerateAndCommitChanges(ctx context.Context) error {
-	// Get staged changes for commit message generation
-	diff, err := a.GitClient.GetDiff()
-	if err != nil {
-		return fmt.Errorf("failed to get staged changes: %w", err)
-	}
-	if diff == "" {
-		return fmt.Errorf("no staged changes to commit")
-	}
-
-	// Create a Gemini client with the API key (which is guaranteed to exist now)
-	geminiClient, err := gemini.NewClient(a.Config.GeminiAPIKey)
-	if err != nil {
-		return fmt.Errorf("failed to create Gemini client: %w", err)
-	}
-
-	// Generate commit message using Gemini with timeout
-	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
-	defer cancel()
-
-	spinner := ui.StartSpinner("Generating commit message...")
-	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens, a.Config.Temperature)
-	ui.StopSpinner(spinner)
-	ui.ClearLine()
-
-	if err != nil {
-		if ctxTimeout.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("commit message generation timed out after %s", a.Config.GetRequestTimeout())
-		}
-		if strings.Contains(err.Error(), "git diff is too large") {
-			return fmt.Errorf("changes are too large for the configured 'max_tokens' (%d). Consider committing smaller changes or increasing the limit", a.Config.MaxTokens)
-		}
-		return fmt.Errorf("failed to generate commit message: %w", err)
-	}
-
-	if message == "" {
-		return fmt.Errorf("empty commit message received from Gemini")
-	}
-
-	// Display the generated message
-	ui.PrintInfo("Generated commit message:")
-	fmt.Println(message)
-
-	// Commit changes
-	if err := a.GitClient.Commit(message); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
-	}
-	ui.PrintSuccess("Successfully committed changes.")
-
-	return nil
-}
-
-// generateAndCommitChanges handles the commit message generation and commit execution.
-// It retrieves the staged diff, generates a message using Gemini, and commits the changes.
-// Returns an error if any step fails.
-func (a *App) generateAndCommitChanges(ctx context.Context) error {
-	return a.generateAndCommitChangesFunc(ctx)
 }
 
 // setupAndCheckPrerequisites performs initial setup and checks:
@@ -196,6 +131,61 @@ func (a *App) ensureStagedChanges() error {
 	if !hasStaged {
 		return fmt.Errorf("You have no changes to commit!")
 	}
+
+	return nil
+}
+
+// generateAndCommitChanges handles the commit message generation and commit execution.
+// It retrieves the staged diff, generates a message using Gemini, and commits the changes.
+// Returns an error if any step fails.
+func (a *App) generateAndCommitChanges(ctx context.Context) error {
+	// Get staged changes for commit message generation
+	diff, err := a.GitClient.GetDiff()
+	if err != nil {
+		return fmt.Errorf("failed to get staged changes: %w", err)
+	}
+	if diff == "" {
+		return fmt.Errorf("no staged changes to commit")
+	}
+
+	// Create a Gemini client with the API key (which is guaranteed to exist now)
+	geminiClient, err := gemini.NewClient(a.Config.GeminiAPIKey)
+	if err != nil {
+		return fmt.Errorf("failed to create Gemini client: %w", err)
+	}
+
+	// Generate commit message using Gemini with timeout
+	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
+	defer cancel()
+
+	spinner := ui.StartSpinner("Generating commit message...")
+	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens, a.Config.Temperature)
+	ui.StopSpinner(spinner)
+	ui.ClearLine()
+
+	if err != nil {
+		if ctxTimeout.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("commit message generation timed out after %s", a.Config.GetRequestTimeout())
+		}
+		if strings.Contains(err.Error(), "git diff is too large") {
+			return fmt.Errorf("changes are too large for the configured 'max_tokens' (%d). Consider committing smaller changes or increasing the limit", a.Config.MaxTokens)
+		}
+		return fmt.Errorf("failed to generate commit message: %w", err)
+	}
+
+	if message == "" {
+		return fmt.Errorf("empty commit message received from Gemini")
+	}
+
+	// Display the generated message
+	ui.PrintInfo("Generated commit message:")
+	fmt.Println(message)
+
+	// Commit changes
+	if err := a.GitClient.Commit(message); err != nil {
+		return fmt.Errorf("failed to commit changes: %w", err)
+	}
+	ui.PrintSuccess("Successfully committed changes.")
 
 	return nil
 }
