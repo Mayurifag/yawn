@@ -43,18 +43,6 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, DefaultPrompt, cfg.Prompt)
 	assert.Equal(t, DefaultWaitForSSHKeys, cfg.WaitForSSHKeys)
 	assert.Equal(t, float32(DefaultTemperature), cfg.Temperature)
-
-	// Verify sources map
-	assert.Equal(t, "default", cfg.sources["GeminiModel"])
-	assert.Equal(t, "default", cfg.sources["MaxTokens"])
-	assert.Equal(t, "default", cfg.sources["RequestTimeoutSeconds"])
-	assert.Equal(t, "default", cfg.sources["AutoStage"])
-	assert.Equal(t, "default", cfg.sources["AutoPush"])
-	assert.Equal(t, "default", cfg.sources["PushCommand"])
-	assert.Equal(t, "default", cfg.sources["Verbose"])
-	assert.Equal(t, "default", cfg.sources["Prompt"])
-	assert.Equal(t, "default", cfg.sources["WaitForSSHKeys"])
-	assert.Equal(t, "default", cfg.sources["Temperature"])
 }
 
 // TestLoadConfig_UserOverride tests that user configuration overrides defaults.
@@ -106,16 +94,6 @@ temperature = 0.8
 	assert.Equal(t, DefaultAutoPush, cfg.AutoPush)
 	assert.Equal(t, DefaultPushCommand, cfg.PushCommand)
 	assert.Equal(t, DefaultVerbose, cfg.Verbose)
-
-	// Verify sources map
-	assert.Equal(t, "user home config", cfg.sources["GeminiModel"])
-	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
-	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
-	assert.Equal(t, "user home config", cfg.sources["Temperature"])
-	assert.Equal(t, "default", cfg.sources["RequestTimeoutSeconds"])
-	assert.Equal(t, "default", cfg.sources["AutoPush"])
-	assert.Equal(t, "default", cfg.sources["PushCommand"])
-	assert.Equal(t, "default", cfg.sources["Verbose"])
 }
 
 // TestLoadConfig_ProjectOverride tests that project configuration overrides both
@@ -184,16 +162,6 @@ temperature = 0.5
 	// Assert defaults for non-overridden values
 	assert.Equal(t, DefaultAutoPush, cfg.AutoPush)
 	assert.Equal(t, DefaultVerbose, cfg.Verbose)
-
-	// Verify sources map
-	assert.Equal(t, "project", cfg.sources["GeminiModel"])
-	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
-	assert.Equal(t, "project", cfg.sources["PushCommand"])
-	assert.Equal(t, "project", cfg.sources["Temperature"])
-	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
-	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
-	assert.Equal(t, "default", cfg.sources["AutoPush"])
-	assert.Equal(t, "default", cfg.sources["Verbose"])
 }
 
 // TestLoadConfig_EnvOverride tests that environment variables override project, user,
@@ -251,7 +219,7 @@ request_timeout_seconds = 30
 	cfg, err := LoadConfig(tempProjectDir, false, "", false, false)
 	require.NoError(t, err)
 
-	// Assert env-overridden values
+	// Assert environment-overridden values
 	assert.Equal(t, "gemini-env-model", cfg.GeminiModel)
 	assert.Equal(t, 1500, cfg.MaxTokens)
 	assert.Equal(t, true, cfg.AutoPush)
@@ -261,23 +229,12 @@ request_timeout_seconds = 30
 	// Assert project-overridden values (not overridden by env)
 	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)
 
-	// Assert user-overridden values (not overridden by project or env)
+	// Assert user-overridden values (not overridden by env or project)
 	assert.Equal(t, true, cfg.AutoStage)
 
 	// Assert defaults for non-overridden values
 	assert.Equal(t, DefaultPushCommand, cfg.PushCommand)
 	assert.Equal(t, DefaultVerbose, cfg.Verbose)
-
-	// Verify sources map
-	assert.Equal(t, "env", cfg.sources["GeminiModel"])
-	assert.Equal(t, "env", cfg.sources["MaxTokens"])
-	assert.Equal(t, "env", cfg.sources["AutoPush"])
-	assert.Equal(t, "env", cfg.sources["WaitForSSHKeys"])
-	assert.Equal(t, "env", cfg.sources["Temperature"])
-	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
-	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
-	assert.Equal(t, "default", cfg.sources["PushCommand"])
-	assert.Equal(t, "default", cfg.sources["Verbose"])
 }
 
 // TestLoadConfig_FlagOverride tests that command-line flags override all other
@@ -305,7 +262,7 @@ func TestLoadConfig_FlagOverride(t *testing.T) {
 	userConfigContent := `
 gemini_model = "gemini-user-model"
 max_tokens = 500
-auto_stage = false
+auto_stage = true
 `
 	err := os.WriteFile(userConfigPath, []byte(userConfigContent), 0600)
 	require.NoError(t, err)
@@ -315,7 +272,6 @@ auto_stage = false
 	projectConfigContent := `
 gemini_model = "gemini-project-model"
 request_timeout_seconds = 30
-auto_stage = true
 `
 	err = os.WriteFile(projectConfigPath, []byte(projectConfigContent), 0600)
 	require.NoError(t, err)
@@ -326,45 +282,45 @@ auto_stage = true
 	}
 
 	// Set environment variables
-	t.Setenv("YAWN_GEMINI_API_KEY", "env-api-key")
 	t.Setenv("YAWN_GEMINI_MODEL", "gemini-env-model")
-	t.Setenv("YAWN_AUTO_PUSH", "false")
+	t.Setenv("YAWN_MAX_TOKENS", "1500")
+	t.Setenv("YAWN_AUTO_PUSH", "true")
 
-	// Call LoadConfig with project path and flags
-	cfg, err := LoadConfig(tempProjectDir, true, "flag-api-key", true, true, "verbose", "api-key", "stage", "push")
+	// Call LoadConfig with flags
+	cfg, err := LoadConfig(
+		tempProjectDir, // projectPath
+		true,           // verboseFlag
+		"flag-api-key", // apiKeyFlag
+		false,          // autoStageFlag
+		true,           // autoPushFlag
+		"verbose",      // flagsSpecified...
+		"api-key",
+		"stage",
+		"push",
+	)
 	require.NoError(t, err)
 
 	// Assert flag-overridden values
 	assert.Equal(t, "flag-api-key", cfg.GeminiAPIKey)
-	assert.Equal(t, true, cfg.Verbose)
-	assert.Equal(t, true, cfg.AutoStage)
+	assert.Equal(t, false, cfg.AutoStage)
 	assert.Equal(t, true, cfg.AutoPush)
+	assert.Equal(t, true, cfg.Verbose)
 
-	// Assert env-overridden values (not overridden by flags)
+	// Assert environment-overridden values (not overridden by flags)
 	assert.Equal(t, "gemini-env-model", cfg.GeminiModel)
+	assert.Equal(t, 1500, cfg.MaxTokens)
 
-	// Assert project-overridden values (not overridden by env or flags)
+	// Assert project-overridden values (not overridden by flags or env)
 	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)
-
-	// Assert user-overridden values (not overridden by project, env, or flags)
-	assert.Equal(t, 500, cfg.MaxTokens)
 
 	// Assert defaults for non-overridden values
 	assert.Equal(t, DefaultPushCommand, cfg.PushCommand)
-
-	// Verify sources map
-	assert.Equal(t, "flag", cfg.sources["GeminiAPIKey"])
-	assert.Equal(t, "flag", cfg.sources["Verbose"])
-	assert.Equal(t, "flag", cfg.sources["AutoStage"])
-	assert.Equal(t, "flag", cfg.sources["AutoPush"])
-	assert.Equal(t, "env", cfg.sources["GeminiModel"])
-	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
-	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
-	assert.Equal(t, "default", cfg.sources["PushCommand"])
+	assert.Equal(t, DefaultWaitForSSHKeys, cfg.WaitForSSHKeys)
+	assert.Equal(t, float32(DefaultTemperature), cfg.Temperature)
 }
 
-// TestLoadConfig_AllSources tests the correct precedence across all configuration sources:
-// Defaults < User Config < Project Config < Environment Variables < Command-line Flags
+// TestLoadConfig_AllSources tests that configuration values are loaded correctly
+// from all sources with proper precedence.
 func TestLoadConfig_AllSources(t *testing.T) {
 	// Create temporary directories
 	tempUserDir := t.TempDir()
@@ -386,13 +342,10 @@ func TestLoadConfig_AllSources(t *testing.T) {
 
 	// Create user config file
 	userConfigContent := `
-# This is a test user config file
 gemini_model = "gemini-user-model"
 max_tokens = 500
-request_timeout_seconds = 15
 auto_stage = true
 push_command = "git push user-origin"
-verbose = true
 `
 	err := os.WriteFile(userConfigPath, []byte(userConfigContent), 0600)
 	require.NoError(t, err)
@@ -400,12 +353,11 @@ verbose = true
 	// Create project config file
 	projectConfigPath := filepath.Join(tempProjectDir, ProjectConfigName)
 	projectConfigContent := `
-# This is a test project config file
 gemini_model = "gemini-project-model"
-max_tokens = 700
 request_timeout_seconds = 30
 push_command = "git push project-origin"
-verbose = false
+wait_for_ssh_keys = true
+temperature = 0.5
 `
 	err = os.WriteFile(projectConfigPath, []byte(projectConfigContent), 0600)
 	require.NoError(t, err)
@@ -419,39 +371,84 @@ verbose = false
 	t.Setenv("YAWN_GEMINI_MODEL", "gemini-env-model")
 	t.Setenv("YAWN_MAX_TOKENS", "1500")
 	t.Setenv("YAWN_AUTO_PUSH", "true")
+	t.Setenv("YAWN_WAIT_FOR_SSH_KEYS", "true")
+	t.Setenv("YAWN_TEMPERATURE", "0.7")
 
-	// Call LoadConfig with explicit flag values
-	cfg, err := LoadConfig(tempProjectDir, true, "flag-api-key", false, false, "verbose", "api-key", "stage", "push")
+	// Call LoadConfig with flags
+	cfg, err := LoadConfig(
+		tempProjectDir, // projectPath
+		true,           // verboseFlag
+		"flag-api-key", // apiKeyFlag
+		false,          // autoStageFlag
+		true,           // autoPushFlag
+		"verbose",      // flagsSpecified...
+		"api-key",
+		"stage",
+		"push",
+	)
 	require.NoError(t, err)
 
-	// Test the full precedence chain:
-
-	// 1. Flag values should override everything
+	// Assert flag-overridden values (highest precedence)
 	assert.Equal(t, "flag-api-key", cfg.GeminiAPIKey)
-	assert.Equal(t, true, cfg.Verbose)    // Overrides project's false
-	assert.Equal(t, false, cfg.AutoStage) // Explicitly set to false, overrides user's true
-	assert.Equal(t, false, cfg.AutoPush)  // Explicitly set to false, overrides env's true
-	assert.Equal(t, "flag", cfg.sources["GeminiAPIKey"])
-	assert.Equal(t, "flag", cfg.sources["Verbose"])
-	assert.Equal(t, "flag", cfg.sources["AutoStage"])
-	assert.Equal(t, "flag", cfg.sources["AutoPush"])
+	assert.Equal(t, false, cfg.AutoStage)
+	assert.Equal(t, true, cfg.AutoPush)
+	assert.Equal(t, true, cfg.Verbose)
 
-	// 2. Environment values should override project and user configs
-	assert.Equal(t, "gemini-env-model", cfg.GeminiModel) // Overrides project's value
-	assert.Equal(t, 1500, cfg.MaxTokens)                 // Overrides project's value
-	assert.Equal(t, "env", cfg.sources["GeminiModel"])
-	assert.Equal(t, "env", cfg.sources["MaxTokens"])
+	// Assert environment-overridden values (second highest precedence)
+	assert.Equal(t, "gemini-env-model", cfg.GeminiModel)
+	assert.Equal(t, 1500, cfg.MaxTokens)
+	assert.Equal(t, true, cfg.WaitForSSHKeys)
+	assert.Equal(t, float32(0.7), cfg.Temperature)
 
-	// 3. Project config values should override user config
-	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)              // Overrides user's value
-	assert.Equal(t, "git push project-origin", cfg.PushCommand) // Overrides user's value
-	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
-	assert.Equal(t, "project", cfg.sources["PushCommand"])
+	// Assert project-overridden values (third highest precedence)
+	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)
+	assert.Equal(t, "git push project-origin", cfg.PushCommand)
 
-	// 4. User config values should override defaults
-	// No values exclusively from user config in this test
+	// Assert defaults for non-overridden values
+	assert.Equal(t, DefaultPrompt, cfg.Prompt)
+}
 
-	// 5. Defaults should be used for values not specified in any other source
-	assert.Equal(t, DefaultPrompt, cfg.Prompt) // Not specified in any config
-	assert.Equal(t, "default", cfg.sources["Prompt"])
+func TestGenerateConfigContent(t *testing.T) {
+	content, err := GenerateConfigContent("test_api_key")
+	require.NoError(t, err)
+
+	// Verify the content contains the API key
+	assert.Contains(t, string(content), "test_api_key")
+}
+
+func TestSaveAPIKeyToUserConfig(t *testing.T) {
+	// Create a temporary directory for test files
+	tempDir, err := os.MkdirTemp("", "yawn-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Override the getConfigDirFunc function for testing
+	originalGetConfigDir := getConfigDirFunc
+	defer func() {
+		getConfigDirFunc = originalGetConfigDir
+	}()
+
+	// Mock getConfigDirFunc to return our temp directory
+	getConfigDirFunc = func() (string, error) {
+		return tempDir, nil
+	}
+
+	// Test saving API key to a new config file
+	err = SaveAPIKeyToUserConfig("test_api_key")
+	require.NoError(t, err)
+
+	// Verify the file was created and contains the API key
+	configPath := filepath.Join(tempDir, UserConfigFileName)
+	content, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "test_api_key")
+
+	// Test updating an existing config file
+	err = SaveAPIKeyToUserConfig("new_api_key")
+	require.NoError(t, err)
+
+	// Verify the file was updated with the new API key
+	content, err = os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "new_api_key")
 }

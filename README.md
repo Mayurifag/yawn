@@ -87,7 +87,7 @@ This project is released into the public domain under The Unlicense. See the [LI
 * [x] Make a non default feature: wait until `ssh-add -l` will show keys - for keepassxc ssh agent usage
 * [ ] Remove verbose mode
 * [ ] Dockerfile -> release it -> add alias to README.md
-* [ ] Migrate to <https://github.com/knadh/koanf> for config handling
+* [x] Migrate to <https://github.com/knadh/koanf> for config handling
 * [ ] Add more CI tests
 
 Actually, I do not plan much features. Project considered as done.
