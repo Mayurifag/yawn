@@ -1,0 +1,10 @@
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+
+linters:
+  enable:
+    - gocyclo
+
+run:
+  timeout: 2m

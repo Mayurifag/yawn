@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/generative-ai-go/genai"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -374,6 +375,208 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 			)
 
 			tc.checkResult(t, message, err)
+		})
+	}
+}
+
+func TestCheckTokenLimit(t *testing.T) {
+	client := &GenaiClient{}
+
+	tests := []struct {
+		name          string
+		prompt        string
+		diff          string
+		maxTokens     int
+		expectedError bool
+	}{
+		{
+			name:          "under limit",
+			prompt:        "short prompt",
+			diff:          "small diff",
+			maxTokens:     1000,
+			expectedError: false,
+		},
+		{
+			name:          "over limit",
+			prompt:        strings.Repeat("long prompt ", 1000),
+			diff:          strings.Repeat("large diff ", 1000),
+			maxTokens:     100,
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.checkTokenLimit(tt.prompt, tt.diff, tt.maxTokens)
+			if tt.expectedError {
+				assert.Error(t, err)
+				var geminiErr *GeminiError
+				assert.True(t, errors.As(err, &geminiErr))
+				assert.Equal(t, string(ErrTokenLimit), geminiErr.Type)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestHandleGenerateContentError(t *testing.T) {
+	client := &GenaiClient{}
+
+	tests := []struct {
+		name         string
+		err          error
+		expectedType GeminiErrorType
+		expectedMsg  string
+	}{
+		{
+			name:         "prompt blocked",
+			err:          &genai.BlockedError{PromptFeedback: &genai.PromptFeedback{BlockReason: genai.BlockReasonUnspecified}},
+			expectedType: ErrSafety,
+			expectedMsg:  "content blocked for safety reasons",
+		},
+		{
+			name:         "response blocked",
+			err:          &genai.BlockedError{Candidate: &genai.Candidate{FinishReason: genai.FinishReasonSafety}},
+			expectedType: ErrSafety,
+			expectedMsg:  "response blocked by safety settings",
+		},
+		{
+			name:         "auth error",
+			err:          errors.New("authentication failed"),
+			expectedType: ErrAuth,
+			expectedMsg:  "invalid API key or authentication failed",
+		},
+		{
+			name:         "rate limit error",
+			err:          errors.New("rate limit exceeded"),
+			expectedType: ErrRateLimit,
+			expectedMsg:  "API rate limit exceeded",
+		},
+		{
+			name:         "generic error",
+			err:          errors.New("some error"),
+			expectedType: "",
+			expectedMsg:  "failed to generate commit message",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.handleGenerateContentError(tt.err)
+			if tt.expectedType == "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedMsg)
+			} else {
+				var geminiErr *GeminiError
+				assert.True(t, errors.As(err, &geminiErr))
+				assert.Equal(t, string(tt.expectedType), geminiErr.Type)
+				assert.Contains(t, geminiErr.Message, tt.expectedMsg)
+			}
+		})
+	}
+}
+
+func TestProcessGenaiResponse(t *testing.T) {
+	client := &GenaiClient{}
+
+	tests := []struct {
+		name          string
+		resp          *genai.GenerateContentResponse
+		expectedMsg   string
+		expectedError bool
+		errorType     GeminiErrorType
+	}{
+		{
+			name: "valid response",
+			resp: &genai.GenerateContentResponse{
+				Candidates: []*genai.Candidate{
+					{
+						Content: &genai.Content{
+							Parts: []genai.Part{
+								genai.Text("feat: add feature"),
+							},
+						},
+					},
+				},
+			},
+			expectedMsg:   "feat: add feature",
+			expectedError: false,
+		},
+		{
+			name:          "nil response",
+			resp:          nil,
+			expectedError: true,
+			errorType:     ErrEmptyResponse,
+		},
+		{
+			name: "empty candidates",
+			resp: &genai.GenerateContentResponse{
+				Candidates: []*genai.Candidate{},
+			},
+			expectedError: true,
+			errorType:     ErrEmptyResponse,
+		},
+		{
+			name: "empty content",
+			resp: &genai.GenerateContentResponse{
+				Candidates: []*genai.Candidate{
+					{
+						Content: &genai.Content{
+							Parts: []genai.Part{},
+						},
+					},
+				},
+			},
+			expectedError: true,
+			errorType:     ErrEmptyContent,
+		},
+		{
+			name: "non-text part",
+			resp: &genai.GenerateContentResponse{
+				Candidates: []*genai.Candidate{
+					{
+						Content: &genai.Content{
+							Parts: []genai.Part{
+								genai.Blob{},
+							},
+						},
+					},
+				},
+			},
+			expectedError: true,
+			errorType:     ErrInvalidFormat,
+		},
+		{
+			name: "empty message",
+			resp: &genai.GenerateContentResponse{
+				Candidates: []*genai.Candidate{
+					{
+						Content: &genai.Content{
+							Parts: []genai.Part{
+								genai.Text(""),
+							},
+						},
+					},
+				},
+			},
+			expectedError: true,
+			errorType:     ErrEmptyMessage,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg, err := client.processGenaiResponse(tt.resp)
+			if tt.expectedError {
+				assert.Error(t, err)
+				var geminiErr *GeminiError
+				assert.True(t, errors.As(err, &geminiErr))
+				assert.Equal(t, string(tt.errorType), geminiErr.Type)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedMsg, msg)
+			}
 		})
 	}
 }

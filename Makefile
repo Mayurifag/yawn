@@ -1,4 +1,4 @@
-.PHONY: all build install clean fmt lint test coverage release
+.PHONY: all build install clean ci fmt lint test coverage release
 
 # Variables
 APP_NAME := yawn
@@ -22,11 +22,11 @@ GORUN := $(GO) run
 all: build
 
 # Build the application
-build: fmt lint test
+build: ci
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(OUTPUT_DIR)/$(APP_NAME) $(CMD_PATH)
 
 # Install the application to GOBIN
-install: fmt lint test
+install: ci
 	@echo "==> Installing $(APP_NAME) to $(GOBIN)..."
 	@mkdir -p $(GOBIN)
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOBIN)/$(APP_NAME) $(CMD_PATH)
@@ -36,7 +36,8 @@ clean:
 	$(GOCLEAN)
 	rm -f $(OUTPUT_DIR)/$(APP_NAME) coverage.*
 
-# Format code
+ci: fmt lint test
+
 fmt:
 	$(GOFMT) ./...
 

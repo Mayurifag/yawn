@@ -164,84 +164,62 @@ func cleanCommitMessage(message string) string {
 	return message
 }
 
-// GenerateCommitMessage generates a commit message using the Gemini API.
-// It takes the model name, prompt template, diff content, max tokens, and temperature as parameters.
-// Returns the generated message and any error encountered.
-func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
-	// Estimate total token count
+func (c *GenaiClient) checkTokenLimit(promptTemplate, diff string, maxTokens int) error {
 	promptTokens := estimateTokenCount(promptTemplate)
 	diffTokens := estimateTokenCount(diff)
 	totalTokens := promptTokens + diffTokens
 
-	// Check if we're likely to exceed the token limit
 	if totalTokens > maxTokens {
-		return "", NewGeminiError(
+		return NewGeminiError(
 			ErrTokenLimit,
 			fmt.Sprintf("estimated token count (%d) exceeds limit (%d). Consider reducing the diff size or increasing max_tokens", totalTokens, maxTokens),
 			nil,
 		)
 	}
+	return nil
+}
 
-	// Create the model
-	model := c.client.GenerativeModel(modelName)
-
-	// Set temperature for generation
-	temp := temperature // Create a copy for the pointer
-	model.SetTemperature(temp)
-
-	// Build the final prompt
-	finalPrompt := strings.Replace(promptTemplate, "{{Diff}}", diff, 1)
-
-	// Generate content
-	resp, err := model.GenerateContent(ctx, genai.Text(finalPrompt))
-	if err != nil {
-		// Check if this is a BlockedError from the genai SDK
-		var blockedErr *genai.BlockedError
-		if errors.As(err, &blockedErr) {
-			// Check if we have prompt feedback
-			if blockedErr.PromptFeedback != nil && blockedErr.PromptFeedback.BlockReason != genai.BlockReasonUnspecified {
-				return "", NewGeminiError(
-					ErrSafety,
-					fmt.Sprintf("prompt blocked: %s", blockedErr.PromptFeedback.BlockReason),
-					err,
-				)
-			}
-
-			// Check if we have candidate feedback (response blocked)
-			if blockedErr.Candidate != nil && blockedErr.Candidate.FinishReason == genai.FinishReasonSafety {
-				return "", NewGeminiError(
-					ErrSafety,
-					"response blocked by safety settings",
-					err,
-				)
-			}
-
-			// Fallback for other blocked errors
-			return "", NewGeminiError(
+func (c *GenaiClient) handleGenerateContentError(err error) error {
+	var blockedErr *genai.BlockedError
+	if errors.As(err, &blockedErr) {
+		if blockedErr.PromptFeedback != nil && blockedErr.PromptFeedback.BlockReason != genai.BlockReasonUnspecified {
+			return NewGeminiError(
 				ErrSafety,
-				"content blocked for safety reasons",
+				fmt.Sprintf("prompt blocked: %s", blockedErr.PromptFeedback.BlockReason),
 				err,
 			)
 		}
 
-		// Fallback to string-based error detection for other error types
-		// that may not be explicitly modeled in the SDK
-		errMsg := err.Error()
-		switch {
-		case strings.Contains(errMsg, "authentication"), strings.Contains(errMsg, "invalid token"),
-			strings.Contains(errMsg, "auth"), strings.Contains(errMsg, "credential"):
-			return "", NewGeminiError(ErrAuth, "invalid API key or authentication failed", err)
-
-		case strings.Contains(errMsg, "rate limit"), strings.Contains(errMsg, "quota"):
-			return "", NewGeminiError(ErrRateLimit, "API rate limit exceeded. Please try again later", err)
-
-		default:
-			// Generic error with proper wrapping
-			return "", fmt.Errorf("failed to generate commit message: %w", err)
+		if blockedErr.Candidate != nil && blockedErr.Candidate.FinishReason == genai.FinishReasonSafety {
+			return NewGeminiError(
+				ErrSafety,
+				"response blocked by safety settings",
+				err,
+			)
 		}
+
+		return NewGeminiError(
+			ErrSafety,
+			"content blocked for safety reasons",
+			err,
+		)
 	}
 
-	// Process the response
+	errMsg := err.Error()
+	switch {
+	case strings.Contains(errMsg, "authentication"), strings.Contains(errMsg, "invalid token"),
+		strings.Contains(errMsg, "auth"), strings.Contains(errMsg, "credential"):
+		return NewGeminiError(ErrAuth, "invalid API key or authentication failed", err)
+
+	case strings.Contains(errMsg, "rate limit"), strings.Contains(errMsg, "quota"):
+		return NewGeminiError(ErrRateLimit, "API rate limit exceeded. Please try again later", err)
+
+	default:
+		return fmt.Errorf("failed to generate commit message: %w", err)
+	}
+}
+
+func (c *GenaiClient) processGenaiResponse(resp *genai.GenerateContentResponse) (string, error) {
 	if resp == nil || len(resp.Candidates) == 0 {
 		return "", NewGeminiError(
 			ErrEmptyResponse,
@@ -254,30 +232,53 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
 		return "", NewGeminiError(
 			ErrEmptyContent,
-			"response content is empty",
+			"received empty content from Gemini API",
 			nil,
 		)
 	}
 
-	// Extract and clean the message
 	part := candidate.Content.Parts[0]
-	message, ok := part.(genai.Text)
+	text, ok := part.(genai.Text)
 	if !ok {
 		return "", NewGeminiError(
 			ErrInvalidFormat,
-			"unexpected response format: expected text content",
-			nil,
-		)
-	}
-	if message == "" {
-		return "", NewGeminiError(
-			ErrEmptyMessage,
-			"generated message is empty",
+			"received non-text response from Gemini API",
 			nil,
 		)
 	}
 
-	return cleanCommitMessage(string(message)), nil
+	message := string(text)
+	if message == "" {
+		return "", NewGeminiError(
+			ErrEmptyMessage,
+			"received empty message from Gemini API",
+			nil,
+		)
+	}
+
+	return cleanCommitMessage(message), nil
+}
+
+// GenerateCommitMessage generates a commit message using the Gemini API.
+// It takes the model name, prompt template, diff content, max tokens, and temperature as parameters.
+// Returns the generated message and any error encountered.
+func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
+	if err := c.checkTokenLimit(promptTemplate, diff, maxTokens); err != nil {
+		return "", err
+	}
+
+	model := c.client.GenerativeModel(modelName)
+	temp := temperature
+	model.SetTemperature(temp)
+
+	finalPrompt := strings.Replace(promptTemplate, "{{Diff}}", diff, 1)
+
+	resp, err := model.GenerateContent(ctx, genai.Text(finalPrompt))
+	if err != nil {
+		return "", c.handleGenerateContentError(err)
+	}
+
+	return c.processGenaiResponse(resp)
 }
 
 // EstimateTokenCount provides a very rough estimate of token count.

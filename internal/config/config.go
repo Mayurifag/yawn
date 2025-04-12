@@ -36,7 +36,7 @@ const (
 - Write a precise description capturing the primary intent of the changes, explaining WHY they were made. Keep it under 50 characters, focusing on ONE main change, even if changes are unrelated. Use specific nouns and verbs relevant to the diff.
 - Prefer terminology used in the diff or context for consistency.
 - Body starts with a brief paragraph (1-2 sentences) explaining WHY and WHAT was done, providing context for the changes. Follow with a blank line, then list all changes as bullet points (one per -), starting with a capital letter. Each bullet should describe a specific change and, where relevant, include a brief reason (e.g., "to improve X" or "for better Y").
-- Ensure the body’s introductory text expands on, but does not repeat, the description line. Provide unique context or details about WHY and WHAT was done.
+- Ensure the body's introductory text expands on, but does not repeat, the description line. Provide unique context or details about WHY and WHAT was done.
 - Use filenames in body or description if relevant, treating them as plain text without formatting.
 - Never use gitmoji
 - Only output the commit message TEXT, which does NOT contain backticks, quotes, or other formatting symbols. No commentaries before or after the message.
@@ -336,146 +336,223 @@ func defaultConfig() Config {
 	}
 }
 
-// mergeConfig merges loadedCfg into baseCfg, tracking the source, using metadata to check defined keys.
-func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
-	// Manual approach using metadata.IsDefined for clarity:
+type tomlConfigHandler struct {
+	key     string
+	handler func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string)
+}
 
-	if metadata.IsDefined("gemini_api_key") && loadedCfg.GeminiAPIKey != "" {
-		baseCfg.GeminiAPIKey = loadedCfg.GeminiAPIKey
-		baseCfg.sources["GeminiAPIKey"] = source
-	}
-	if metadata.IsDefined("gemini_model") && loadedCfg.GeminiModel != "" {
-		baseCfg.GeminiModel = loadedCfg.GeminiModel
-		baseCfg.sources["GeminiModel"] = source
-	}
-	if metadata.IsDefined("max_tokens") && loadedCfg.MaxTokens != 0 { // Assuming 0 is not a valid user setting
-		baseCfg.MaxTokens = loadedCfg.MaxTokens
-		baseCfg.sources["MaxTokens"] = source
-	}
-	if metadata.IsDefined("request_timeout_seconds") && loadedCfg.RequestTimeoutSeconds != 0 {
-		baseCfg.RequestTimeoutSeconds = loadedCfg.RequestTimeoutSeconds
-		baseCfg.sources["RequestTimeoutSeconds"] = source
-	}
-	if metadata.IsDefined("prompt") && loadedCfg.Prompt != "" {
-		baseCfg.Prompt = loadedCfg.Prompt
-		baseCfg.sources["Prompt"] = source
-	}
-	// Booleans need explicit check if they were defined in the file.
-	if metadata.IsDefined("auto_stage") {
-		baseCfg.AutoStage = loadedCfg.AutoStage
-		baseCfg.sources["AutoStage"] = source
-	}
-	if metadata.IsDefined("auto_push") {
-		baseCfg.AutoPush = loadedCfg.AutoPush
-		baseCfg.sources["AutoPush"] = source
-	}
-	if metadata.IsDefined("push_command") && loadedCfg.PushCommand != "" {
-		baseCfg.PushCommand = loadedCfg.PushCommand
-		baseCfg.sources["PushCommand"] = source
-	}
-	if metadata.IsDefined("verbose") {
-		baseCfg.Verbose = loadedCfg.Verbose
-		baseCfg.sources["Verbose"] = source
-	}
-	if metadata.IsDefined("wait_for_ssh_keys") {
-		baseCfg.WaitForSSHKeys = loadedCfg.WaitForSSHKeys
-		baseCfg.sources["WaitForSSHKeys"] = source
-	}
-	if metadata.IsDefined("temperature") {
-		baseCfg.Temperature = loadedCfg.Temperature
-		baseCfg.sources["Temperature"] = source
+var tomlConfigHandlers = []tomlConfigHandler{
+	{
+		key: "gemini_api_key",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("gemini_api_key") && loadedCfg.GeminiAPIKey != "" {
+				baseCfg.GeminiAPIKey = loadedCfg.GeminiAPIKey
+				baseCfg.sources["GeminiAPIKey"] = source
+			}
+		},
+	},
+	{
+		key: "gemini_model",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("gemini_model") && loadedCfg.GeminiModel != "" {
+				baseCfg.GeminiModel = loadedCfg.GeminiModel
+				baseCfg.sources["GeminiModel"] = source
+			}
+		},
+	},
+	{
+		key: "max_tokens",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("max_tokens") && loadedCfg.MaxTokens != 0 {
+				baseCfg.MaxTokens = loadedCfg.MaxTokens
+				baseCfg.sources["MaxTokens"] = source
+			}
+		},
+	},
+	{
+		key: "request_timeout_seconds",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("request_timeout_seconds") && loadedCfg.RequestTimeoutSeconds != 0 {
+				baseCfg.RequestTimeoutSeconds = loadedCfg.RequestTimeoutSeconds
+				baseCfg.sources["RequestTimeoutSeconds"] = source
+			}
+		},
+	},
+	{
+		key: "prompt",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("prompt") && loadedCfg.Prompt != "" {
+				baseCfg.Prompt = loadedCfg.Prompt
+				baseCfg.sources["Prompt"] = source
+			}
+		},
+	},
+	{
+		key: "auto_stage",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("auto_stage") {
+				baseCfg.AutoStage = loadedCfg.AutoStage
+				baseCfg.sources["AutoStage"] = source
+			}
+		},
+	},
+	{
+		key: "auto_push",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("auto_push") {
+				baseCfg.AutoPush = loadedCfg.AutoPush
+				baseCfg.sources["AutoPush"] = source
+			}
+		},
+	},
+	{
+		key: "push_command",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("push_command") && loadedCfg.PushCommand != "" {
+				baseCfg.PushCommand = loadedCfg.PushCommand
+				baseCfg.sources["PushCommand"] = source
+			}
+		},
+	},
+	{
+		key: "verbose",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("verbose") {
+				baseCfg.Verbose = loadedCfg.Verbose
+				baseCfg.sources["Verbose"] = source
+			}
+		},
+	},
+	{
+		key: "wait_for_ssh_keys",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("wait_for_ssh_keys") {
+				baseCfg.WaitForSSHKeys = loadedCfg.WaitForSSHKeys
+				baseCfg.sources["WaitForSSHKeys"] = source
+			}
+		},
+	},
+	{
+		key: "temperature",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("temperature") && loadedCfg.Temperature != 0 {
+				baseCfg.Temperature = loadedCfg.Temperature
+				baseCfg.sources["Temperature"] = source
+			}
+		},
+	},
+}
+
+func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+	for _, handler := range tomlConfigHandlers {
+		handler.handler(baseCfg, loadedCfg, metadata, source)
 	}
 }
 
+type envConfigHandler struct {
+	key     string
+	handler func(cfg *Config, value string)
+}
+
+var envConfigHandlers = []envConfigHandler{
+	{
+		key: "GEMINI_API_KEY",
+		handler: func(cfg *Config, value string) {
+			cfg.GeminiAPIKey = value
+			cfg.sources["GeminiAPIKey"] = "env"
+		},
+	},
+	{
+		key: "GEMINI_MODEL",
+		handler: func(cfg *Config, value string) {
+			cfg.GeminiModel = value
+			cfg.sources["GeminiModel"] = "env"
+		},
+	},
+	{
+		key: "MAX_TOKENS",
+		handler: func(cfg *Config, value string) {
+			if v, err := strconv.Atoi(value); err == nil {
+				cfg.MaxTokens = v
+				cfg.sources["MaxTokens"] = "env"
+			}
+		},
+	},
+	{
+		key: "REQUEST_TIMEOUT_SECONDS",
+		handler: func(cfg *Config, value string) {
+			if v, err := strconv.Atoi(value); err == nil {
+				cfg.RequestTimeoutSeconds = v
+				cfg.sources["RequestTimeoutSeconds"] = "env"
+			}
+		},
+	},
+	{
+		key: "PROMPT",
+		handler: func(cfg *Config, value string) {
+			cfg.Prompt = value
+			cfg.sources["Prompt"] = "env"
+		},
+	},
+	{
+		key: "AUTO_STAGE",
+		handler: func(cfg *Config, value string) {
+			if v, err := strconv.ParseBool(value); err == nil {
+				cfg.AutoStage = v
+				cfg.sources["AutoStage"] = "env"
+			}
+		},
+	},
+	{
+		key: "AUTO_PUSH",
+		handler: func(cfg *Config, value string) {
+			if v, err := strconv.ParseBool(value); err == nil {
+				cfg.AutoPush = v
+				cfg.sources["AutoPush"] = "env"
+			}
+		},
+	},
+	{
+		key: "PUSH_COMMAND",
+		handler: func(cfg *Config, value string) {
+			cfg.PushCommand = value
+			cfg.sources["PushCommand"] = "env"
+		},
+	},
+	{
+		key: "VERBOSE",
+		handler: func(cfg *Config, value string) {
+			if v, err := strconv.ParseBool(value); err == nil {
+				cfg.Verbose = v
+				cfg.sources["Verbose"] = "env"
+			}
+		},
+	},
+	{
+		key: "WAIT_FOR_SSH_KEYS",
+		handler: func(cfg *Config, value string) {
+			if v, err := strconv.ParseBool(value); err == nil {
+				cfg.WaitForSSHKeys = v
+				cfg.sources["WaitForSSHKeys"] = "env"
+			}
+		},
+	},
+	{
+		key: "TEMPERATURE",
+		handler: func(cfg *Config, value string) {
+			if v, err := strconv.ParseFloat(value, 32); err == nil {
+				cfg.Temperature = float32(v)
+				cfg.sources["Temperature"] = "env"
+			}
+		},
+	},
+}
+
 func loadConfigFromEnv(cfg *Config) {
-	// Helper to get env var with prefix
-	getEnv := func(key string) string {
-		return os.Getenv(EnvPrefix + key)
-	}
-
-	// Helper to get bool env var
-	getBoolEnv := func(key string) (bool, bool) {
-		val := getEnv(key)
-		if val == "" {
-			return false, false
+	for _, handler := range envConfigHandlers {
+		if value := os.Getenv(EnvPrefix + handler.key); value != "" {
+			handler.handler(cfg, value)
 		}
-		b, err := strconv.ParseBool(val)
-		if err != nil {
-			return false, false
-		}
-		return b, true
-	}
-
-	// Helper to get int env var
-	getIntEnv := func(key string) (int, bool) {
-		val := getEnv(key)
-		if val == "" {
-			return 0, false
-		}
-		i, err := strconv.Atoi(val)
-		if err != nil {
-			return 0, false
-		}
-		return i, true
-	}
-
-	// Helper to get float env var
-	getFloatEnv := func(key string) (float32, bool) {
-		val := getEnv(key)
-		if val == "" {
-			return 0, false
-		}
-		f, err := strconv.ParseFloat(val, 32)
-		if err != nil {
-			return 0, false
-		}
-		return float32(f), true
-	}
-
-	// Load from environment variables
-	if apiKey := getEnv("GEMINI_API_KEY"); apiKey != "" {
-		cfg.GeminiAPIKey = apiKey
-		cfg.sources["GeminiAPIKey"] = "env"
-	}
-	if model := getEnv("GEMINI_MODEL"); model != "" {
-		cfg.GeminiModel = model
-		cfg.sources["GeminiModel"] = "env"
-	}
-	if maxTokens, ok := getIntEnv("MAX_TOKENS"); ok {
-		cfg.MaxTokens = maxTokens
-		cfg.sources["MaxTokens"] = "env"
-	}
-	if timeout, ok := getIntEnv("REQUEST_TIMEOUT_SECONDS"); ok {
-		cfg.RequestTimeoutSeconds = timeout
-		cfg.sources["RequestTimeoutSeconds"] = "env"
-	}
-	if prompt := getEnv("PROMPT"); prompt != "" {
-		cfg.Prompt = prompt
-		cfg.sources["Prompt"] = "env"
-	}
-	if autoStage, ok := getBoolEnv("AUTO_STAGE"); ok {
-		cfg.AutoStage = autoStage
-		cfg.sources["AutoStage"] = "env"
-	}
-	if autoPush, ok := getBoolEnv("AUTO_PUSH"); ok {
-		cfg.AutoPush = autoPush
-		cfg.sources["AutoPush"] = "env"
-	}
-	if pushCommand := getEnv("PUSH_COMMAND"); pushCommand != "" {
-		cfg.PushCommand = pushCommand
-		cfg.sources["PushCommand"] = "env"
-	}
-	if verbose, ok := getBoolEnv("VERBOSE"); ok {
-		cfg.Verbose = verbose
-		cfg.sources["Verbose"] = "env"
-	}
-	if waitForSSHKeys, ok := getBoolEnv("WAIT_FOR_SSH_KEYS"); ok {
-		cfg.WaitForSSHKeys = waitForSSHKeys
-		cfg.sources["WaitForSSHKeys"] = "env"
-	}
-	if temperature, ok := getFloatEnv("TEMPERATURE"); ok {
-		cfg.Temperature = temperature
-		cfg.sources["Temperature"] = "env"
 	}
 }
 
