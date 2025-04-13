@@ -11,6 +11,8 @@ import (
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
+
+	"github.com/Mayurifag/yawn/internal/config"
 )
 
 // Client defines the interface for interacting with the Gemini API.
@@ -256,7 +258,12 @@ func (c *GenaiClient) processGenaiResponse(resp *genai.GenerateContentResponse) 
 		)
 	}
 
-	return cleanCommitMessage(message), nil
+	// Save raw message to log file
+	config.SaveRawMessageLog(message)
+
+	// Clean and format the message
+	cleanedMessage := cleanCommitMessage(message)
+	return cleanedMessage, nil
 }
 
 // GenerateCommitMessage generates a commit message using the Gemini API.

@@ -883,3 +883,26 @@ func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte,
 
 	return buf.Bytes(), nil
 }
+
+// SaveRawMessageLog saves the raw message from Gemini API to a log file
+// in the user's config directory. If any error occurs during file operations,
+// a warning is printed to stderr, but no error is returned.
+func SaveRawMessageLog(rawMessage string) {
+	userConfigPath, err := getUserConfigPathFunc()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not determine user config path for logging: %v\n", err)
+		return
+	}
+
+	// Get the directory containing the user config file
+	userConfigDir := filepath.Dir(userConfigPath)
+
+	// Construct path to the log file
+	logFilePath := filepath.Join(userConfigDir, "latest_message.log")
+
+	// Write the raw message to the log file
+	err = os.WriteFile(logFilePath, []byte(rawMessage), 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to write raw message log: %v\n", err)
+	}
+}

@@ -83,11 +83,10 @@ This project is released into the public domain under The Unlicense. See the [LI
 * [x] Wait and add more free AI API providers, who dont ask for credit card
   * I don't know anyone for now, but will add more here probably
 * [ ] Replace EstimateTokenCount implementation in internal/gemini/client.go with calls to c.client.CountTokens(ctx, modelName, genai.Text(text))
-* [ ] Show token count for user, changed files, changed lines probably
+* [ ] Show token count for user, changed files, changed lines probably, beautiful output colored green/red with arrows
 * [x] Make a non default feature: wait until `ssh-add -l` will show keys - for keepassxc ssh agent usage
 * [ ] Remove verbose mode
 * [ ] Dockerfile -> release it -> add alias to README.md
 * [ ] Migrate to <https://github.com/knadh/koanf> for config handling
-* [ ] Add more CI tests
-
-Actually, I do not plan much features. Project considered as done.
+  * This solution will require us to think the way to get source of config, koanf seems missing this functionality
+* [x] Add more CI tests
