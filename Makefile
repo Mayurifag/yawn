@@ -47,7 +47,7 @@ lint:
 
 # Run tests
 test:
-	$(GOTEST) -v -race -coverprofile=coverage.out -covermode=atomic ./...
+	$(GOTEST) ./...
 
 # Run tests with coverage report
 coverage:

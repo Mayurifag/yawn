@@ -85,9 +85,9 @@ func TestCleanCommitMessage(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "remove backticks",
+			name:     "preserve backticks",
 			input:    "feat: add feature `some code`",
-			expected: "feat: add feature some code",
+			expected: "feat: add feature `some code`",
 		},
 		{
 			name:     "trim whitespace",
@@ -103,6 +103,21 @@ func TestCleanCommitMessage(t *testing.T) {
 			name:     "preserve conventional commit format",
 			input:    "feat(scope): add feature\n\n- Point one\n- Point two",
 			expected: "feat(scope): add feature\n\n- Point one\n- Point two",
+		},
+		{
+			name:     "consolidate multiple spaces",
+			input:    "feat:    add     thing",
+			expected: "feat: add thing",
+		},
+		{
+			name:     "consolidate tabs",
+			input:    "feat:\tadd\tthing",
+			expected: "feat: add thing",
+		},
+		{
+			name:     "consolidate mixed spaces and tabs",
+			input:    "feat: \t add \t thing",
+			expected: "feat: add thing",
 		},
 	}
 

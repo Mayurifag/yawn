@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -124,11 +125,9 @@ func estimateTokenCount(s string) int {
 }
 
 // cleanCommitMessage cleans and formats the AI-generated commit message.
-// It removes common prefixes, backticks, and extra whitespace while preserving newlines.
 func cleanCommitMessage(message string) string {
-	// Remove backticks but keep their content
-	message = strings.ReplaceAll(message, "`", "")
 	message = strings.TrimSpace(message)
+	message = regexp.MustCompile(`[ \t]+`).ReplaceAllString(message, " ")
 	message = strings.ReplaceAll(message, "\r\n", "\n")
 	return message
 }

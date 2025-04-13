@@ -39,7 +39,7 @@ const (
 - Ensure the body's introductory text expands on, but does not repeat, the description line. Provide unique context or details about WHY and WHAT was done.
 - Use filenames in body or description if relevant, treating them as plain text without formatting.
 - Never use gitmoji
-- Only output the commit message TEXT, which does NOT contain backticks, quotes, or other formatting symbols. No commentaries before or after the message.
+- Only output the commit message TEXT. No commentaries before or after the message.
 
 Structure of output:
 <type>[optional scope]: <description>
