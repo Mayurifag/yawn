@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -127,42 +126,10 @@ func estimateTokenCount(s string) int {
 // cleanCommitMessage cleans and formats the AI-generated commit message.
 // It removes common prefixes, backticks, and extra whitespace while preserving newlines.
 func cleanCommitMessage(message string) string {
-	// Remove backticks and their content
-	message = regexp.MustCompile("`[^`]*`").ReplaceAllString(message, "")
-
-	// Remove common prefixes
-	prefixes := []string{
-		"commit:",
-		"commit message:",
-		"commit message is:",
-		"here's the commit message:",
-		"the commit message should be:",
-		"the commit message is:",
-		"commit message:",
-		"commit:",
-		"message:",
-		"text:",
-	}
-
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(strings.ToLower(message), prefix) {
-			message = message[len(prefix):]
-		}
-	}
-
-	// Trim space from start and end
+	// Remove backticks but keep their content
+	message = strings.ReplaceAll(message, "`", "")
 	message = strings.TrimSpace(message)
-
-	// Normalize line breaks (convert \r\n to \n)
 	message = strings.ReplaceAll(message, "\r\n", "\n")
-
-	// Clean up excessive whitespace while preserving newlines
-	// Replace multiple spaces with a single space
-	message = regexp.MustCompile(`[ \t]+`).ReplaceAllString(message, " ")
-
-	// Replace multiple newlines with double newlines (preserve paragraph structure)
-	message = regexp.MustCompile(`\n{3,}`).ReplaceAllString(message, "\n\n")
-
 	return message
 }
 

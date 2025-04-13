@@ -85,19 +85,9 @@ func TestCleanCommitMessage(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "remove backticks and content",
+			name:     "remove backticks",
 			input:    "feat: add feature `some code`",
-			expected: "feat: add feature",
-		},
-		{
-			name:     "remove common prefix",
-			input:    "Commit message: feat: add new feature",
-			expected: "feat: add new feature",
-		},
-		{
-			name:     "case-insensitive prefix removal",
-			input:    "COMMIT MESSAGE: feat: add feature",
-			expected: "feat: add feature",
+			expected: "feat: add feature some code",
 		},
 		{
 			name:     "trim whitespace",
@@ -108,16 +98,6 @@ func TestCleanCommitMessage(t *testing.T) {
 			name:     "normalize line breaks",
 			input:    "feat: add feature\r\nwith detailed description",
 			expected: "feat: add feature\nwith detailed description",
-		},
-		{
-			name:     "collapse multiple spaces",
-			input:    "feat:   add   feature",
-			expected: "feat: add feature",
-		},
-		{
-			name:     "collapse multiple newlines",
-			input:    "feat: add feature\n\n\n\nwith description",
-			expected: "feat: add feature\n\nwith description",
 		},
 		{
 			name:     "preserve conventional commit format",
