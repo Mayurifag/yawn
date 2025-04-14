@@ -89,4 +89,5 @@ This project is released into the public domain under The Unlicense. See the [LI
 * [ ] Dockerfile -> release it -> add alias to README.md
 * [ ] Migrate to <https://github.com/knadh/koanf> for config handling
   * This solution will require us to think the way to get source of config, koanf seems missing this functionality
-* [x] Add more CI tests
+* [ ] Add more CI commands
+* [ ] Rewrite README.md
