@@ -123,6 +123,7 @@ func PrintRepoLink(message string, url string) {
 
 // PrintPreGenerationInfo prints information about the current branch, token count, and diff stats.
 // This is displayed before commit message generation.
+// TODO: in future I'd fix the tokens output colors.
 func PrintPreGenerationInfo(tokenCount string, tokenLimit int, branchName string, additions int, deletions int) {
 	// Format the information
 	// Blue color for the main info, Yellow for branch and counts, Green for additions (↑), Red for deletions (↓)
