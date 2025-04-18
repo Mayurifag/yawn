@@ -76,12 +76,11 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 ## Roadmap
 
-* In final result give link to user's PR or project page. Make that for github, gitlab (also private ones)
-* Add feature to send to fallback model if current model is down for a while (happens with new models)
 * Remove verbose mode - it is not needed and complicates code
+* Add feature to send to fallback model if current model is down for a while (happens with new models)
 * Think of better config handling. Current solution is complex. Though I also need source of config, koanf seems missing this functionality. Plus better init file handling.
-* Add more CI commands
 * Rewrite README.md
 * Dockerfile -> release it -> add alias to README.md
 * Make installation easier for all OSes (i.e. homebrew installation) and README.md better
 * Release 1.0.0 when it will be mature enough
+* Change release process makefile command
