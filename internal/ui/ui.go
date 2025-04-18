@@ -125,10 +125,10 @@ func PrintRepoLink(message string, url string) {
 // This is displayed before commit message generation.
 func PrintPreGenerationInfo(tokenCount string, tokenLimit int, branchName string, additions int, deletions int) {
 	// Format the information
-	// Cyan for the main block, Yellow for branch and counts, Green for additions (↑), Red for deletions (↓)
+	// Blue color for the main info, Yellow for branch and counts, Green for additions (↑), Red for deletions (↓)
 
 	// Prepare colors
-	cyan := color.New(color.FgCyan)
+	blue := color.New(color.FgBlue)
 	yellow := color.New(color.FgYellow)
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
@@ -141,6 +141,6 @@ func PrintPreGenerationInfo(tokenCount string, tokenLimit int, branchName string
 		red.Sprintf("↓ %d", deletions),
 	)
 
-	// Print the complete info line
-	cyan.Printf("* %s | %s | %s\n", branchPart, tokenPart, changesPart)
+	// Print the complete info line using the same style as PrintInfo
+	fmt.Printf("%s %s\n", infoPrefix, blue.Sprintf("%s | %s | %s", branchPart, tokenPart, changesPart))
 }
