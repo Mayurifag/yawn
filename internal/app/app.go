@@ -139,21 +139,97 @@ func (a *App) ensureStagedChanges() error {
 // It retrieves the staged diff, generates a message using Gemini, and commits the changes.
 // Returns an error if any step fails.
 func (a *App) generateAndCommitChanges(ctx context.Context) error {
-	// Get staged changes for commit message generation
-	diff, err := a.GitClient.GetDiff()
+	// Get and validate staged changes
+	diff, err := a.getAndValidateDiff()
 	if err != nil {
-		return fmt.Errorf("failed to get staged changes: %w", err)
-	}
-	if diff == "" {
-		return fmt.Errorf("no staged changes to commit")
+		return err
 	}
 
-	// Create a Gemini client with the API key (which is guaranteed to exist now)
+	// Create Gemini client
 	geminiClient, err := gemini.NewClient(a.Config.GeminiAPIKey)
 	if err != nil {
 		return fmt.Errorf("failed to create Gemini client: %w", err)
 	}
 
+	// Gather pre-generation information
+	branchName, additions, deletions := a.gatherCommitInfo()
+
+	// Display token count and prepare for generation
+	tokenCountStr := a.getTokenCount(ctx, geminiClient, diff)
+
+	// Display pre-generation info to the user
+	ui.PrintPreGenerationInfo(tokenCountStr, a.Config.MaxTokens, branchName, additions, deletions)
+
+	// Generate and process commit message
+	message, err := a.generateCommitMessage(ctx, geminiClient, diff)
+	if err != nil {
+		return err
+	}
+
+	// Commit changes
+	if err := a.GitClient.Commit(message); err != nil {
+		return fmt.Errorf("failed to commit changes: %w", err)
+	}
+	ui.PrintSuccess("Successfully committed changes.")
+
+	return nil
+}
+
+// getAndValidateDiff retrieves the diff of staged changes and validates it.
+func (a *App) getAndValidateDiff() (string, error) {
+	diff, err := a.GitClient.GetDiff()
+	if err != nil {
+		return "", fmt.Errorf("failed to get staged changes: %w", err)
+	}
+	if diff == "" {
+		return "", fmt.Errorf("no staged changes to commit")
+	}
+	return diff, nil
+}
+
+// gatherCommitInfo collects information about the current branch and diff stats.
+func (a *App) gatherCommitInfo() (branchName string, additions int, deletions int) {
+	// Get current branch name
+	branchName, err := a.GitClient.GetCurrentBranch()
+	if err != nil {
+		branchName = "unknown" // Fallback if we can't get the branch name
+		if a.Config.Verbose {
+			fmt.Fprintf(os.Stderr, "[APP] Failed to get current branch: %v\n", err)
+		}
+	}
+
+	// Get diff stats (additions and deletions)
+	additions, deletions, err = a.GitClient.GetDiffNumStatSummary()
+	if err != nil {
+		additions, deletions = 0, 0 // Fallback if we can't get the stats
+		if a.Config.Verbose {
+			fmt.Fprintf(os.Stderr, "[APP] Failed to get diff stats: %v\n", err)
+		}
+	}
+
+	return branchName, additions, deletions
+}
+
+// getTokenCount counts tokens in the diff and returns a formatted string.
+func (a *App) getTokenCount(ctx context.Context, geminiClient gemini.Client, diff string) string {
+	tokenCountStr := "?"
+	tokenCtx, cancel := context.WithTimeout(ctx, 5*time.Second) // Short timeout for token counting
+	defer cancel()
+
+	// Prepare the prompt content for token counting
+	finalPrompt := strings.Replace(a.Config.Prompt, "{{Diff}}", diff, 1)
+	tokenCount, err := geminiClient.CountTokensForText(tokenCtx, a.Config.GeminiModel, finalPrompt)
+	if err == nil {
+		tokenCountStr = fmt.Sprintf("%d", tokenCount)
+	} else if a.Config.Verbose {
+		fmt.Fprintf(os.Stderr, "[APP] Failed to count tokens: %v\n", err)
+	}
+
+	return tokenCountStr
+}
+
+// generateCommitMessage generates a commit message using the Gemini API.
+func (a *App) generateCommitMessage(ctx context.Context, geminiClient gemini.Client, diff string) (string, error) {
 	// Generate commit message using Gemini with timeout
 	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
 	defer cancel()
@@ -165,29 +241,23 @@ func (a *App) generateAndCommitChanges(ctx context.Context) error {
 
 	if err != nil {
 		if ctxTimeout.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("commit message generation timed out after %s", a.Config.GetRequestTimeout())
+			return "", fmt.Errorf("commit message generation timed out after %s", a.Config.GetRequestTimeout())
 		}
-		if strings.Contains(err.Error(), "git diff is too large") {
-			return fmt.Errorf("changes are too large for the configured 'max_tokens' (%d). Consider committing smaller changes or increasing the limit", a.Config.MaxTokens)
+		if strings.Contains(err.Error(), "token count") && strings.Contains(err.Error(), "exceeds limit") {
+			return "", fmt.Errorf("changes are too large for the configured 'max_tokens' (%d). Consider committing smaller changes or increasing the limit", a.Config.MaxTokens)
 		}
-		return fmt.Errorf("failed to generate commit message: %w", err)
+		return "", fmt.Errorf("failed to generate commit message: %w", err)
 	}
 
 	if message == "" {
-		return fmt.Errorf("empty commit message received from Gemini")
+		return "", fmt.Errorf("empty commit message received from Gemini")
 	}
 
 	// Display the generated message
 	ui.PrintInfo("Generated commit message:")
 	fmt.Println(message)
 
-	// Commit changes
-	if err := a.GitClient.Commit(message); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
-	}
-	ui.PrintSuccess("Successfully committed changes.")
-
-	return nil
+	return message, nil
 }
 
 // handlePushOperation manages the push workflow:

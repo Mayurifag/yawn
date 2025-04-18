@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +24,7 @@ type GitClient interface {
 	GetCurrentBranch() (string, error)
 	GetRemoteURL(remote string) (string, error)
 	GetLastCommitHash() (string, error)
+	GetDiffNumStatSummary() (additions int, deletions int, err error)
 }
 
 // ExecGitClient implements GitClient using os/exec.
@@ -279,6 +281,60 @@ func (g *ExecGitClient) GetLastCommitHash() (string, error) {
 	return strings.TrimSpace(output), nil
 }
 
+// GetDiffNumStatSummary returns the total number of added and deleted lines in the staged changes.
+// It uses git diff --cached --numstat to get the stats.
+func (c *ExecGitClient) GetDiffNumStatSummary() (additions int, deletions int, err error) {
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] Getting diff stats summary...\n")
+	}
+
+	output, err := c.runGitCommand("diff", "--cached", "--numstat", "--no-color")
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get diff stats: %w", err)
+	}
+
+	// Parse the output and sum up additions and deletions
+	// Each line is in the format: <additions>\t<deletions>\t<file>
+	lines := strings.Split(output, "\n")
+	totalAdditions := 0
+	totalDeletions := 0
+
+	for _, line := range lines {
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+
+		// Split the line by tabs
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue // Skip malformed lines
+		}
+
+		// Parse additions and deletions counts
+		// Binary files show as "-" instead of numbers
+		if parts[0] != "-" {
+			add, parseErr := strconv.Atoi(parts[0])
+			if parseErr == nil {
+				totalAdditions += add
+			}
+		}
+
+		if parts[1] != "-" {
+			del, parseErr := strconv.Atoi(parts[1])
+			if parseErr == nil {
+				totalDeletions += del
+			}
+		}
+	}
+
+	if c.Verbose {
+		fmt.Fprintf(os.Stderr, "[GIT] Diff stats: %d additions, %d deletions\n", totalAdditions, totalDeletions)
+	}
+
+	return totalAdditions, totalDeletions, nil
+}
+
 // --- Mock Client for Testing ---
 
 // MockGitClient implements GitClient for testing purposes.
@@ -295,6 +351,7 @@ type MockGitClient struct {
 	MockGetCurrentBranch      func() (string, error)
 	MockGetRemoteURL          func(remoteName string) (string, error)
 	MockGetLastCommitHash     func() (string, error)
+	MockGetDiffNumStatSummary func() (additions int, deletions int, err error)
 }
 
 func (m *MockGitClient) HasStagedChanges() (bool, error) {
@@ -382,4 +439,12 @@ func (m *MockGitClient) GetLastCommitHash() (string, error) {
 		return m.MockGetLastCommitHash()
 	}
 	return "", fmt.Errorf("MockGetLastCommitHash not implemented")
+}
+
+func (m *MockGitClient) GetDiffNumStatSummary() (additions int, deletions int, err error) {
+	if m.MockGetDiffNumStatSummary != nil {
+		return m.MockGetDiffNumStatSummary()
+	}
+	// Default implementation returns 0 for both
+	return 0, 0, nil
 }

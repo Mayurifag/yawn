@@ -77,8 +77,7 @@ This project is released into the public domain under The Unlicense. See the [LI
 ## Roadmap
 
 * In final result give link to user's PR or project page. Make that for github, gitlab (also private ones)
-* Replace EstimateTokenCount implementation in internal/gemini/client.go with calls to c.client.CountTokens(ctx, modelName, genai.Text(text))
-* Show token count for user, changed files, changed lines probably, beautiful output colored green/red with arrows. Show the branch name in the outputs
+* Add feature to send to fallback model if current model is down for a while (happens with new models)
 * Remove verbose mode - it is not needed and complicates code
 * Think of better config handling. Current solution is complex. Though I also need source of config, koanf seems missing this functionality. Plus better init file handling.
 * Add more CI commands

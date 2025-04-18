@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
@@ -16,7 +14,7 @@ import (
 // Client defines the interface for interacting with the Gemini API.
 type Client interface {
 	GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
-	EstimateTokenCount(text string) int
+	CountTokensForText(ctx context.Context, modelName string, text string) (int, error)
 }
 
 // GenaiClient implements the Client interface using the official Google GenAI SDK.
@@ -101,27 +99,6 @@ func NewGeminiError(errType GeminiErrorType, message string, err error) *GeminiE
 	}
 }
 
-// estimateTokenCount estimates the number of tokens in a string.
-// This is a rough estimation based on word count and special characters.
-func estimateTokenCount(s string) int {
-	// Count words (split by whitespace)
-	words := strings.Fields(s)
-	count := len(words)
-
-	// Add extra tokens for special characters and formatting
-	for _, word := range words {
-		// Count special characters that might be tokenized separately
-		for _, c := range word {
-			if !unicode.IsLetter(c) && !unicode.IsDigit(c) && !unicode.IsSpace(c) {
-				count++
-			}
-		}
-	}
-
-	// Add buffer for system prompt and formatting
-	return count + 100
-}
-
 // cleanCommitMessage cleans and formats the AI-generated commit message.
 func cleanCommitMessage(message string) string {
 	message = strings.TrimSpace(message)
@@ -130,15 +107,42 @@ func cleanCommitMessage(message string) string {
 	return message
 }
 
-func (c *GenaiClient) checkTokenLimit(promptTemplate, diff string, maxTokens int) error {
-	promptTokens := estimateTokenCount(promptTemplate)
-	diffTokens := estimateTokenCount(diff)
-	totalTokens := promptTokens + diffTokens
+// CountTokensForText counts the number of tokens in a text using the SDK method.
+// This provides an accurate token count directly from the model.
+func (c *GenaiClient) CountTokensForText(ctx context.Context, modelName string, text string) (int, error) {
+	if c.client == nil {
+		if err := c.initClient(); err != nil {
+			return 0, fmt.Errorf("failed to initialize client for token counting: %w", err)
+		}
+	}
 
-	if totalTokens > maxTokens {
+	model := c.client.GenerativeModel(modelName)
+	resp, err := model.CountTokens(ctx, genai.Text(text))
+	if err != nil {
+		return 0, fmt.Errorf("failed to count tokens: %w", err)
+	}
+
+	return int(resp.TotalTokens), nil
+}
+
+func (c *GenaiClient) checkTokenLimit(promptTemplate, diff string, modelName string, maxTokens int) error {
+	// Use the context.Background() since we expect token counting to be fast
+	ctx := context.Background()
+
+	// Prepare the text content as we would for the actual request
+	finalPrompt := strings.Replace(promptTemplate, "{{Diff}}", diff, 1)
+
+	// Use the CountTokensForText method for accurate count
+	tokenCount, err := c.CountTokensForText(ctx, modelName, finalPrompt)
+	if err != nil {
+		// If we can't count tokens, log the error but don't fail (this is not critical)
+		return nil
+	}
+
+	if tokenCount > maxTokens {
 		return NewGeminiError(
 			ErrTokenLimit,
-			fmt.Sprintf("estimated token count (%d) exceeds limit (%d). Consider reducing the diff size or increasing max_tokens", totalTokens, maxTokens),
+			fmt.Sprintf("token count (%d) exceeds limit (%d). Consider reducing the diff size or increasing max_tokens", tokenCount, maxTokens),
 			nil,
 		)
 	}
@@ -229,7 +233,7 @@ func (c *GenaiClient) processGenaiResponse(resp *genai.GenerateContentResponse) 
 // It takes the model name, prompt template, diff content, max tokens, and temperature as parameters.
 // Returns the generated message and any error encountered.
 func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
-	if err := c.checkTokenLimit(promptTemplate, diff, maxTokens); err != nil {
+	if err := c.checkTokenLimit(promptTemplate, diff, modelName, maxTokens); err != nil {
 		return "", err
 	}
 
@@ -247,18 +251,10 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 	return c.processGenaiResponse(resp)
 }
 
-// EstimateTokenCount provides a very rough estimate of token count.
-// A common approximation is 1 token ~ 4 characters in English.
-// This doesn't account for specific model tokenization rules.
-func (c *GenaiClient) EstimateTokenCount(text string) int {
-	charCount := utf8.RuneCountInString(text)
-	return (charCount / 4) + 5
-}
-
 // MockGeminiClient is a mock implementation of Client.
 type MockGeminiClient struct {
 	GenerateCommitMessageFunc func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
-	EstimateTokenCountFunc    func(text string) int
+	CountTokensForTextFunc    func(ctx context.Context, modelName string, text string) (int, error)
 }
 
 func (m *MockGeminiClient) GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
@@ -268,10 +264,10 @@ func (m *MockGeminiClient) GenerateCommitMessage(ctx context.Context, model, pro
 	return "feat: add new feature\n\nImplement the feature based on the diff.", nil
 }
 
-func (m *MockGeminiClient) EstimateTokenCount(text string) int {
-	if m.EstimateTokenCountFunc != nil {
-		return m.EstimateTokenCountFunc(text)
+func (m *MockGeminiClient) CountTokensForText(ctx context.Context, modelName string, text string) (int, error) {
+	if m.CountTokensForTextFunc != nil {
+		return m.CountTokensForTextFunc(ctx, modelName, text)
 	}
-	charCount := utf8.RuneCountInString(text)
-	return (charCount / 4) + 5
+	// Default implementation returns a conservative estimate
+	return len(strings.Fields(text)), nil
 }

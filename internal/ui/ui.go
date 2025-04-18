@@ -120,3 +120,27 @@ func ClearLine() {
 func PrintRepoLink(message string, url string) {
 	fmt.Printf("%s %s\n", message, color.BlueString(url))
 }
+
+// PrintPreGenerationInfo prints information about the current branch, token count, and diff stats.
+// This is displayed before commit message generation.
+func PrintPreGenerationInfo(tokenCount string, tokenLimit int, branchName string, additions int, deletions int) {
+	// Format the information
+	// Cyan for the main block, Yellow for branch and counts, Green for additions (↑), Red for deletions (↓)
+
+	// Prepare colors
+	cyan := color.New(color.FgCyan)
+	yellow := color.New(color.FgYellow)
+	green := color.New(color.FgGreen)
+	red := color.New(color.FgRed)
+
+	// Format parts of the message
+	branchPart := fmt.Sprintf("Branch: %s", yellow.Sprint(branchName))
+	tokenPart := fmt.Sprintf("Tokens: %s/%d", yellow.Sprint(tokenCount), tokenLimit)
+	changesPart := fmt.Sprintf("Changes: %s %s",
+		green.Sprintf("↑ %d", additions),
+		red.Sprintf("↓ %d", deletions),
+	)
+
+	// Print the complete info line
+	cyan.Printf("* %s | %s | %s\n", branchPart, tokenPart, changesPart)
+}
