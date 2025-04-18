@@ -237,7 +237,6 @@ func (a *App) generateCommitMessage(ctx context.Context, geminiClient gemini.Cli
 	spinner := ui.StartSpinner("Generating commit message...")
 	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens, a.Config.Temperature)
 	ui.StopSpinner(spinner)
-	ui.ClearLine()
 
 	if err != nil {
 		if ctxTimeout.Err() == context.DeadlineExceeded {
