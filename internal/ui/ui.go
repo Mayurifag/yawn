@@ -133,14 +133,16 @@ func PrintPreGenerationInfo(tokenCount string, tokenLimit int, branchName string
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
 
-	// Format parts of the message
-	branchPart := fmt.Sprintf("Branch: %s", yellow.Sprint(branchName))
-	tokenPart := fmt.Sprintf("Tokens: %s/%d", yellow.Sprint(tokenCount), tokenLimit)
-	changesPart := fmt.Sprintf("Changes: %s %s",
-		green.Sprintf("↑ %d", additions),
-		red.Sprintf("↓ %d", deletions),
-	)
+	// Format the values that should be highlighted in their specific colors
+	branchValue := yellow.Sprint(branchName)
+	tokenValue := yellow.Sprint(tokenCount)
+	additionsValue := green.Sprintf("↑ %d", additions)
+	deletionsValue := red.Sprintf("↓ %d", deletions)
+
+	// Format the complete message with all text in blue except the highlighted values
+	message := blue.Sprintf("Branch: %s | Tokens: %s/%d | Changes: %s %s",
+		branchValue, tokenValue, tokenLimit, additionsValue, deletionsValue)
 
 	// Print the complete info line using the same style as PrintInfo
-	fmt.Printf("%s %s\n", infoPrefix, blue.Sprintf("%s | %s | %s", branchPart, tokenPart, changesPart))
+	fmt.Printf("%s %s\n", infoPrefix, message)
 }
