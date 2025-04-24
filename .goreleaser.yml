@@ -86,26 +86,3 @@ release:
   # extra_files:
   #   - glob: ./path/to/some/asset.deb
   #   - glob: ./other/asset.*
-
-# We are skipping Docker image generation for now
-# dockers:
-#   - # Docker image configuration
-#     goos: linux
-#     goarch: amd64
-#     # GOARM: '' # Omit GOARM for amd64
-#     # Path to the Dockerfile.
-#     dockerfile: Dockerfile
-#     # IDs of the builds to use.
-#     ids:
-#       - yawn
-#     # Image templates.
-#     image_templates:
-#       - "ghcr.io/mayurifag/yawn:latest"
-#       - "ghcr.io/mayurifag/yawn:{{ .Tag }}"
-#       - "ghcr.io/mayurifag/yawn:v{{ .Major }}"
-#     # Optional: Build arguments for the Dockerfile.
-#     # build_flag_templates:
-#     #   - "--label=org.opencontainers.image.created={{.Date}}"
-#     #   - "--label=org.opencontainers.image.title={{.ProjectName}}"
-#     #   - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-#     #   - "--label=org.opencontainers.image.version={{.Version}}"
