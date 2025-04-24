@@ -130,7 +130,7 @@ func (c *ExecGitClient) HasUncommittedChanges() (bool, error) {
 // Returns true if there are unstaged changes, false otherwise.
 func (c *ExecGitClient) HasUnstagedChanges() (bool, error) {
 	if c.Verbose {
-		fmt.Fprintf(os.Stderr, "[GIT] Checking for unstaged changes...\n")
+		fmt.Fprintf(os.Stderr, "[GIT] Checking for unstaged changes (modified and untracked)...\n")
 	}
 	// Use git diff --quiet to check for unstaged changes
 	// Exit code 1 (with empty output) means there are unstaged changes
@@ -139,13 +139,28 @@ func (c *ExecGitClient) HasUnstagedChanges() (bool, error) {
 		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
 			// Exit code 1 with no output means there are unstaged changes
 			if c.Verbose {
-				fmt.Fprintf(os.Stderr, "[GIT] Found unstaged changes\n")
+				fmt.Fprintf(os.Stderr, "[GIT] Found unstaged modified changes\n")
 			}
 			return true, nil
 		}
 		return false, fmt.Errorf("failed to check for unstaged changes: %w", err)
 	}
-	// Exit code 0 means no unstaged changes
+
+	// If no modified files, check for untracked files
+	output, err := c.runGitCommand("ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return false, fmt.Errorf("failed to check for untracked files: %w", err)
+	}
+
+	// If there are untracked files, the output will not be empty
+	if output != "" {
+		if c.Verbose {
+			fmt.Fprintf(os.Stderr, "[GIT] Found untracked files\n")
+		}
+		return true, nil
+	}
+
+	// No unstaged changes found (neither modified nor untracked)
 	if c.Verbose {
 		fmt.Fprintf(os.Stderr, "[GIT] No unstaged changes found\n")
 	}
@@ -372,7 +387,7 @@ func (m *MockGitClient) HasUnstagedChanges() (bool, error) {
 	if m.MockHasUnstagedChanges != nil {
 		return m.MockHasUnstagedChanges()
 	}
-	return false, fmt.Errorf("mock HasUnstagedChanges not implemented")
+	return false, nil
 }
 
 func (m *MockGitClient) HasAnyChanges() (bool, error) {
