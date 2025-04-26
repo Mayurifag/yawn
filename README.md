@@ -81,6 +81,7 @@ This project is released into the public domain under The Unlicense. See the [LI
 * Think of better config handling. Current solution is complex. Though I also need source of config, koanf seems missing this functionality. Plus better init file handling. I need to write custom provider for those. Maybe koanf rewrite with custom provider.
 * git pull before commit
 * git push force with lease confirmation if already there is commit in origin. [y/N]. Also show 3 latest commits from origin in such case with authors.
+* If commited manually something and accidently type `q` after — that means user wants to push, lets do it for him!
 * Rewrite README.md
 * Make installation easier for all OSes (i.e. homebrew installation) and README.md better
 * Release 1.0.0 when it will be mature enough
