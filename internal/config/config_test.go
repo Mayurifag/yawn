@@ -43,6 +43,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, DefaultPrompt, cfg.Prompt)
 	assert.Equal(t, DefaultWaitForSSHKeys, cfg.WaitForSSHKeys)
 	assert.Equal(t, float32(DefaultTemperature), cfg.Temperature)
+	assert.Equal(t, DefaultFallbackGeminiModel, cfg.FallbackGeminiModel)
 
 	// Verify sources map
 	assert.Equal(t, "default", cfg.sources["GeminiModel"])
@@ -55,6 +56,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, "default", cfg.sources["Prompt"])
 	assert.Equal(t, "default", cfg.sources["WaitForSSHKeys"])
 	assert.Equal(t, "default", cfg.sources["Temperature"])
+	assert.Equal(t, "default", cfg.sources["FallbackGeminiModel"])
 }
 
 // TestLoadConfig_UserOverride tests that user configuration overrides defaults.
@@ -100,6 +102,7 @@ temperature = 0.8
 	assert.Equal(t, 500, cfg.MaxTokens)
 	assert.Equal(t, true, cfg.AutoStage)
 	assert.Equal(t, float32(0.8), cfg.Temperature)
+	assert.Equal(t, DefaultFallbackGeminiModel, cfg.FallbackGeminiModel)
 
 	// Assert defaults for non-overridden values
 	assert.Equal(t, DefaultTimeoutSecs, cfg.RequestTimeoutSeconds)
@@ -116,6 +119,7 @@ temperature = 0.8
 	assert.Equal(t, "default", cfg.sources["AutoPush"])
 	assert.Equal(t, "default", cfg.sources["PushCommand"])
 	assert.Equal(t, "default", cfg.sources["Verbose"])
+	assert.Equal(t, "default", cfg.sources["FallbackGeminiModel"])
 }
 
 // TestLoadConfig_ProjectOverride tests that project configuration overrides both
@@ -176,6 +180,7 @@ temperature = 0.5
 	assert.Equal(t, "git push project-origin", cfg.PushCommand)
 	assert.Equal(t, true, cfg.WaitForSSHKeys)
 	assert.Equal(t, float32(0.5), cfg.Temperature)
+	assert.Equal(t, DefaultFallbackGeminiModel, cfg.FallbackGeminiModel)
 
 	// Assert user-overridden values (not overridden by project)
 	assert.Equal(t, 500, cfg.MaxTokens)
@@ -194,6 +199,7 @@ temperature = 0.5
 	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
 	assert.Equal(t, "default", cfg.sources["AutoPush"])
 	assert.Equal(t, "default", cfg.sources["Verbose"])
+	assert.Equal(t, "default", cfg.sources["FallbackGeminiModel"])
 }
 
 // TestLoadConfig_EnvOverride tests that environment variables override project, user,
@@ -257,6 +263,7 @@ request_timeout_seconds = 30
 	assert.Equal(t, true, cfg.AutoPush)
 	assert.Equal(t, true, cfg.WaitForSSHKeys)
 	assert.Equal(t, float32(0.7), cfg.Temperature)
+	assert.Equal(t, DefaultFallbackGeminiModel, cfg.FallbackGeminiModel)
 
 	// Assert project-overridden values (not overridden by env)
 	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)
@@ -278,6 +285,7 @@ request_timeout_seconds = 30
 	assert.Equal(t, "user home config", cfg.sources["AutoStage"])
 	assert.Equal(t, "default", cfg.sources["PushCommand"])
 	assert.Equal(t, "default", cfg.sources["Verbose"])
+	assert.Equal(t, "default", cfg.sources["FallbackGeminiModel"])
 }
 
 // TestLoadConfig_FlagOverride tests that command-line flags override all other
@@ -339,6 +347,7 @@ auto_stage = true
 	assert.Equal(t, true, cfg.Verbose)
 	assert.Equal(t, true, cfg.AutoStage)
 	assert.Equal(t, true, cfg.AutoPush)
+	assert.Equal(t, DefaultFallbackGeminiModel, cfg.FallbackGeminiModel)
 
 	// Assert env-overridden values (not overridden by flags)
 	assert.Equal(t, "gemini-env-model", cfg.GeminiModel)
@@ -361,6 +370,7 @@ auto_stage = true
 	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
 	assert.Equal(t, "user home config", cfg.sources["MaxTokens"])
 	assert.Equal(t, "default", cfg.sources["PushCommand"])
+	assert.Equal(t, "default", cfg.sources["FallbackGeminiModel"])
 }
 
 // TestLoadConfig_AllSources tests the correct precedence across all configuration sources:
@@ -435,18 +445,21 @@ verbose = false
 	assert.Equal(t, "flag", cfg.sources["Verbose"])
 	assert.Equal(t, "flag", cfg.sources["AutoStage"])
 	assert.Equal(t, "flag", cfg.sources["AutoPush"])
+	assert.Equal(t, DefaultFallbackGeminiModel, cfg.FallbackGeminiModel)
 
 	// 2. Environment values should override project and user configs
 	assert.Equal(t, "gemini-env-model", cfg.GeminiModel) // Overrides project's value
 	assert.Equal(t, 1500, cfg.MaxTokens)                 // Overrides project's value
 	assert.Equal(t, "env", cfg.sources["GeminiModel"])
 	assert.Equal(t, "env", cfg.sources["MaxTokens"])
+	assert.Equal(t, DefaultFallbackGeminiModel, cfg.FallbackGeminiModel)
 
 	// 3. Project config values should override user config
 	assert.Equal(t, 30, cfg.RequestTimeoutSeconds)              // Overrides user's value
 	assert.Equal(t, "git push project-origin", cfg.PushCommand) // Overrides user's value
 	assert.Equal(t, "project", cfg.sources["RequestTimeoutSeconds"])
 	assert.Equal(t, "project", cfg.sources["PushCommand"])
+	assert.Equal(t, "default", cfg.sources["FallbackGeminiModel"])
 
 	// 4. User config values should override defaults
 	// No values exclusively from user config in this test
@@ -454,4 +467,6 @@ verbose = false
 	// 5. Defaults should be used for values not specified in any other source
 	assert.Equal(t, DefaultPrompt, cfg.Prompt) // Not specified in any config
 	assert.Equal(t, "default", cfg.sources["Prompt"])
+	assert.Equal(t, DefaultFallbackGeminiModel, cfg.FallbackGeminiModel)
+	assert.Equal(t, "default", cfg.sources["FallbackGeminiModel"])
 }

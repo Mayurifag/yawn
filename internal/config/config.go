@@ -12,33 +12,33 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// When 2.5 flash will be stable set it to DefaultGeminiModel    = "gemini-2.5-flash-preview-04-17"
 const (
-	AppName               = "yawn"
-	ProjectConfigName     = ".yawn.toml"
-	UserConfigDirName     = "yawn"
-	UserConfigFileName    = "config.toml"
-	EnvPrefix             = "YAWN_"
-	DefaultGeminiModel    = "gemini-1.5-flash"
-	DefaultMaxTokens      = 1000000
-	DefaultTimeoutSecs    = 10
-	DefaultAutoStage      = false
-	DefaultAutoPush       = false
-	DefaultPushCommand    = "git push origin HEAD"
-	DefaultVerbose        = false
-	DefaultWaitForSSHKeys = false
-	DefaultTemperature    = 0.1
-	DefaultPrompt         = `Generate a commit message.
+	AppName                    = "yawn"
+	ProjectConfigName          = ".yawn.toml"
+	UserConfigDirName          = "yawn"
+	UserConfigFileName         = "config.toml"
+	EnvPrefix                  = "YAWN_"
+	DefaultGeminiModel         = "gemini-2.5-flash-preview-04-17"
+	DefaultFallbackGeminiModel = "gemini-2.0-flash"
+	DefaultMaxTokens           = 1000000
+	DefaultTimeoutSecs         = 15
+	DefaultAutoStage           = false
+	DefaultAutoPush            = false
+	DefaultPushCommand         = "git push origin HEAD"
+	DefaultVerbose             = false
+	DefaultWaitForSSHKeys      = false
+	DefaultTemperature         = 0.1
+	DefaultPrompt              = `Generate a commit message.
 
 - ALWAYS follow Conventional Commits specification (https://www.conventionalcommits.org/en/v1.0.0/)
 - Description, type and scope must start with a lowercase letter
 - Use only these types: fix, feat, docs, style, refactor, perf, test, build, ci, chore
 - Scope should be a noun describing a section of the codebase (e.g., api, core, ui, auth)
-- Write a precise description capturing the primary intent of the changes, explaining WHAT was changed and WHY. Keep it short, focusing on ONE main change (even if changes are unrelated), using specific nouns and action verbs from the diff. For version updates, use the stable version name (e.g., 'gemini-2.5-flash') in the description, reserving full version details (e.g., preview tags) for the body. Use specific nouns and verbs relevant to the diff.
+- The description MUST be a concise summary of THE MOST SIGNIFICANT CHANGE OR THE OVERALL GOAL of the commit. Explain WHAT the primary change is and WHY it was made. Focus on the single most impactful alteration if multiple unrelated changes exist. Use strong action verbs and specific nouns directly from the diff content. For version updates, the description should mention the library/model and the fact it's an update (e.g., "update Gemini model to 1.5-flash-preview"); full version details belong in the body.
 - Prefer terminology used in the diff or context for consistency.
-- Body starts with a brief paragraph (1-2 sentences) explaining WHY and WHAT was done, providing context for the changes. Follow with a blank line, then list all changes as bullet points (one per -), starting with a capital letter. Each bullet should describe a unique, specific change using diff terminology, avoiding repetition of the description’s content. Include a brief reason (e.g., 'to improve X' or 'for better Y') only if it adds new context not covered in the introductory paragraph.
-- For diffs with a single change (e.g., updating a constant or configuration), ensure the description and body focus on that change without overgeneralizing. The body’s bullet should detail the exact change (e.g., file or constant name, full version) while the description summarizes the intent.
-- When updating versions (e.g., model, library), use the stable or primary version identifier in the description (e.g., 'gemini-2.5-flash') and include the full version, including preview or build tags, in the body’s bullet (e.g., 'gemini-2.5-flash-preview-04-17').
+- Body starts with a brief paragraph (1-2 sentences) explaining WHY and WHAT was done, providing context for the changes. Follow with a blank line, then list all changes as bullet points (one per -), starting with a capital letter. Each bullet should describe a unique, specific change using diff terminology, avoiding repetition of the description's content. Include a brief reason (e.g., 'to improve X' or 'for better Y') only if it adds new context not covered in the introductory paragraph.
+- For diffs with a single change (e.g., updating a constant or configuration), ensure the description and body focus on that change without overgeneralizing. The body's bullet should detail the exact change (e.g., file or constant name, full version) while the description summarizes the intent.
+- When updating versions (e.g., model, library), use the stable or primary version identifier in the description (e.g., 'gemini-2.5-flash') and include the full version, including preview or build tags, in the body's bullet (e.g., 'gemini-2.5-flash-preview-04-17').
 - Ensure the body's introductory text expands on, but does not repeat, the description line. Provide unique context or details about WHY and WHAT was done.
 - Use filenames in body or description if relevant, treating them as plain text without formatting.
 - Never use gitmoji
@@ -84,6 +84,7 @@ type Config struct {
 	Verbose               bool    `toml:"verbose"`
 	WaitForSSHKeys        bool    `toml:"wait_for_ssh_keys"`
 	Temperature           float32 `toml:"temperature"`
+	FallbackGeminiModel   string  `toml:"fallback_gemini_model"`
 
 	sources map[string]string `toml:"-"` // Key: field name, Value: source (default, user, project, env, flag)
 }
@@ -335,6 +336,7 @@ func defaultConfig() Config {
 		Verbose:               DefaultVerbose,
 		WaitForSSHKeys:        DefaultWaitForSSHKeys,
 		Temperature:           DefaultTemperature,
+		FallbackGeminiModel:   DefaultFallbackGeminiModel,
 		// API Key has no default
 	}
 }
@@ -444,6 +446,15 @@ var tomlConfigHandlers = []tomlConfigHandler{
 			}
 		},
 	},
+	{
+		key: "fallback_gemini_model",
+		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
+			if metadata.IsDefined("fallback_gemini_model") && loadedCfg.FallbackGeminiModel != "" {
+				baseCfg.FallbackGeminiModel = loadedCfg.FallbackGeminiModel
+				baseCfg.sources["FallbackGeminiModel"] = source
+			}
+		},
+	},
 }
 
 func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
@@ -549,6 +560,13 @@ var envConfigHandlers = []envConfigHandler{
 			}
 		},
 	},
+	{
+		key: "FALLBACK_GEMINI_MODEL",
+		handler: func(cfg *Config, value string) {
+			cfg.FallbackGeminiModel = value
+			cfg.sources["FallbackGeminiModel"] = "env"
+		},
+	},
 }
 
 func loadConfigFromEnv(cfg *Config) {
@@ -642,6 +660,7 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 		"verbose":                 DefaultVerbose,
 		"wait_for_ssh_keys":       DefaultWaitForSSHKeys,
 		"temperature":             DefaultTemperature, // Controls randomness in generation (0.0-1.0)
+		"fallback_gemini_model":   DefaultFallbackGeminiModel,
 	}
 
 	// Only include API key if it's provided
@@ -731,6 +750,7 @@ func toMap(c Config) map[string]interface{} {
 		"Verbose":               c.Verbose,
 		"WaitForSSHKeys":        c.WaitForSSHKeys,
 		"Temperature":           c.Temperature,
+		"FallbackGeminiModel":   c.FallbackGeminiModel,
 	}
 }
 
@@ -743,7 +763,7 @@ func logConfigSources(cfg Config) {
 	// Define desired order
 	orderedKeys := []string{
 		"GeminiAPIKey", "GeminiModel", "MaxTokens", "RequestTimeoutSeconds",
-		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose", "WaitForSSHKeys", "Temperature",
+		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose", "WaitForSSHKeys", "Temperature", "FallbackGeminiModel",
 	}
 	// Use ordered keys if they exist in sources
 	processedKeys := make(map[string]bool)
@@ -857,7 +877,7 @@ func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte,
 	// Write the configuration values
 	configKeys := []string{
 		"gemini_api_key", "gemini_model", "max_tokens", "request_timeout_seconds",
-		"auto_stage", "auto_push", "push_command", "verbose", "prompt", "wait_for_ssh_keys", "temperature",
+		"auto_stage", "auto_push", "push_command", "verbose", "prompt", "wait_for_ssh_keys", "temperature", "fallback_gemini_model",
 	}
 
 	for _, key := range configKeys {
