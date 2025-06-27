@@ -76,6 +76,7 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 ## Roadmap
 
+* Lets send all codebase to Gemini API so answer will be more accurate. I should also make message for sent message that if we have little feature change and a lot of logging removal, main message has to be about feature change.
 * 10 second timeout for Gemini API call is not enough for large diffs. Lets make it 30 seconds.
 * Check if there is a way to output not full commit message but rather token by token in console.
 * Remove verbose mode - it is not needed and complicates code
