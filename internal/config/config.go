@@ -18,8 +18,8 @@ const (
 	UserConfigDirName          = "yawn"
 	UserConfigFileName         = "config.toml"
 	EnvPrefix                  = "YAWN_"
-	DefaultGeminiModel         = "gemini-2.5-flash-preview-04-17"
-	DefaultFallbackGeminiModel = "gemini-2.0-flash"
+	DefaultGeminiModel         = "gemini-2.5-flash-lite-preview-06-17"
+	DefaultFallbackGeminiModel = "gemini-2.5-flash"
 	DefaultMaxTokens           = 1000000
 	DefaultTimeoutSecs         = 15
 	DefaultAutoStage           = false
