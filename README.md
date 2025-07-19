@@ -76,7 +76,9 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 ## Roadmap
 
+* Update deps
 * Ignore binary files in diff, just show them. Maybe too much tokens files as well.
+* If got timeout from Gemini API, tell user probably need to update models. Any way to get the recent ones from Gemini API?
 * Lets send all codebase to Gemini API so answer will be more accurate. I should also make message for sent message that if we have little feature change and a lot of logging removal, main message has to be about feature change.
 * 10 second timeout for Gemini API call is not enough for large diffs. Lets make it 30 seconds.
 * Check if there is a way to output not full commit message but rather token by token in console.
@@ -85,7 +87,7 @@ This project is released into the public domain under The Unlicense. See the [LI
 * Think of better config handling. Current solution is complex. Though I also need source of config, koanf seems missing this functionality. Plus better init file handling. I need to write custom provider for those. Maybe koanf rewrite with custom provider.
 * git pull before commit
 * git push force with lease confirmation if already there is commit in origin. [y/N]. Also show 3 latest commits from origin in such case with authors.
-* If commited manually something and accidently type `q` after — that means user wants to push, lets do it for him!
+* If commited manually something and accidently type `q` after — that means user wants to push, lets do it for him - on agreement (enter)
 * Rewrite README.md
 * Make installation easier for all OSes (i.e. homebrew installation) and README.md better
 * Release 1.0.0 when it will be mature enough
