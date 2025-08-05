@@ -76,7 +76,6 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 ## Roadmap
 
-* Update deps
 * Ignore binary files in diff, just show them. Maybe too much tokens files as well.
 * If got timeout from Gemini API, tell user probably need to update models. Any way to get the recent ones from Gemini API?
 * Lets send all codebase to Gemini API so answer will be more accurate. I should also make message for sent message that if we have little feature change and a lot of logging removal, main message has to be about feature change.

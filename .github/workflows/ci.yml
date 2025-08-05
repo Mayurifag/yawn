@@ -22,8 +22,8 @@ jobs:
         go-version-file: 'go.mod'
         cache-dependency-path: go.sum
 
-    - name: Install golangci-lint
-      uses: golangci/golangci-lint-action@v6
+    - name: Install and run golangci-lint
+      uses: golangci/golangci-lint-action@v8
       with:
         version: latest
 
@@ -32,9 +32,6 @@ jobs:
 
     - name: Vet
       run: go vet ./...
-
-    - name: Lint
-      run: make lint
 
     - name: Test with Race Detector and Coverage
       run: make test
