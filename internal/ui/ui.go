@@ -94,7 +94,7 @@ func StartSpinner(message string) *spinner.Spinner {
 	if err := s.Color("cyan"); err != nil {
 		// Color is not critical, continue with default color
 		if s != nil && s.Writer != nil {
-			fmt.Fprintf(s.Writer, "Warning: Failed to set spinner color: %v\n", err)
+			_, _ = fmt.Fprintf(s.Writer, "Warning: Failed to set spinner color: %v\n", err)
 		}
 	}
 	s.Start()

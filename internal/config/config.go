@@ -132,7 +132,7 @@ func findProjectConfig(startPath string) string {
 			// Check if it's readable
 			f, openErr := os.Open(configPath)
 			if openErr == nil {
-				f.Close()
+				_ = f.Close()
 				return configPath // Found readable config file
 			}
 			// If Stat worked but Open failed, might be permissions issue, stop searching up?
@@ -828,13 +828,13 @@ func writeConfigFileAtomically(content []byte, targetPath string) error {
 	// Ensure temp file is cleaned up on error
 	defer func() {
 		if err != nil { // Only remove if there was an error during write/rename
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
 	// Write content to temp file
 	if _, err = tmpFile.Write(content); err != nil {
-		tmpFile.Close() // Close even on write error
+		_ = tmpFile.Close() // Close even on write error
 		return fmt.Errorf("failed to write to temporary config file: %w", err)
 	}
 
@@ -846,14 +846,14 @@ func writeConfigFileAtomically(content []byte, targetPath string) error {
 	// Set restrictive permissions (read/write for owner only: 0600)
 	if err = os.Chmod(tmpPath, 0600); err != nil {
 		// Attempt to remove the temp file if chmod fails
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to set permissions on temporary config file: %w", err)
 	}
 
 	// Atomically replace the actual config file with the temporary file
 	if err = os.Rename(tmpPath, targetPath); err != nil {
 		// Attempt to remove the temp file if rename fails
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to save config file (rename failed): %w", err)
 	}
 

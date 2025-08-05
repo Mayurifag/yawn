@@ -129,7 +129,7 @@ func (a *App) ensureStagedChanges() error {
 	}
 
 	if !hasStaged {
-		return fmt.Errorf("You have no changes to commit!")
+		return fmt.Errorf("you have no changes to commit")
 	}
 
 	return nil
