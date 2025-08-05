@@ -51,7 +51,7 @@ Structure of output:
 
 [optional footer(s)]
 
-Here are example outputs (until ---):
+Here are example outputs (until =):
 refactor(interactors): simplify strategies generation
 
 Simplified the strategy generation process to improve maintainability and readability by using a single orchestrator.
@@ -60,15 +60,15 @@ Simplified the strategy generation process to improve maintainability and readab
 - Removed MultiprocessingStrategyGenerator to reduce complexity.
 - Created ParallelBacktestExecutor for efficient backtesting.
 - Added ResultsProcessor to handle result storage.
----
+=
 feat!: allow provided config object to extend other configs
 
 BREAKING CHANGE: 'extends' key in config file is now used for extending other config files
----
+=
 
 Here is the diff to analyze:
 
-{{Diff}}`
+!YAWNDIFFPLACEHOLDER!`
 )
 
 // Config holds the application configuration. Fields must be exported for TOML decoding.

@@ -217,7 +217,7 @@ func (a *App) getTokenCount(ctx context.Context, geminiClient gemini.Client, dif
 	defer cancel()
 
 	// Prepare the prompt content for token counting
-	finalPrompt := strings.Replace(a.Config.Prompt, "{{Diff}}", diff, 1)
+	finalPrompt := strings.Replace(a.Config.Prompt, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 	tokenCount, err := geminiClient.CountTokensForText(tokenCtx, a.Config.GeminiModel, finalPrompt)
 	if err == nil {
 		tokenCountStr = fmt.Sprintf("%d", tokenCount)

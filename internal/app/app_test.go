@@ -41,7 +41,7 @@ func TestGenerateAndCommitChanges(t *testing.T) {
 		GeminiModel:  "gemini-1.5-flash",
 		MaxTokens:    1000,
 		Temperature:  0.1,
-		Prompt:       "Generate commit message for this diff: {{Diff}}",
+		Prompt:       "Generate commit message for this diff: !YAWNDIFFPLACEHOLDER!",
 	}
 
 	// Create mock git client

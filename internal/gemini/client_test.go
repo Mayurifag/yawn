@@ -98,7 +98,7 @@ func TestGenaiClient_GenerateCommitMessage_TokenLimit(t *testing.T) {
 		},
 		GenerateCommitMessageFunc: func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 			// Call a simplified version of the token limit check logic
-			finalPrompt := strings.Replace(promptTemplate, "{{Diff}}", diff, 1)
+			finalPrompt := strings.Replace(promptTemplate, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 			tokenCount, _ := mock.CountTokensForText(ctx, model, finalPrompt)
 
 			if tokenCount > maxTokens {
@@ -116,7 +116,7 @@ func TestGenaiClient_GenerateCommitMessage_TokenLimit(t *testing.T) {
 	// Test token limit exceeded
 	ctx := context.Background()
 	model := "test-model"
-	prompt := "This is a test prompt with {{Diff}}"
+	prompt := "This is a test prompt with !YAWNDIFFPLACEHOLDER!"
 	largeDiff := "Large diff that would exceed token limit"
 	maxTokens := 500            // Small max tokens to ensure we exceed it
 	temperature := float32(0.1) // Default temperature
@@ -281,7 +281,7 @@ func TestMockGeminiClient_Errors(t *testing.T) {
 			message, err := mockClient.GenerateCommitMessage(
 				context.Background(),
 				"test-model",
-				"Generate commit for {{Diff}}",
+				"Generate commit for !YAWNDIFFPLACEHOLDER!",
 				"test diff",
 				1000,
 				0.1, // Default temperature
@@ -337,7 +337,7 @@ func TestCheckTokenLimit(t *testing.T) {
 	}{
 		{
 			name:           "under token limit",
-			promptTemplate: "Test prompt with {{Diff}}",
+			promptTemplate: "Test prompt with !YAWNDIFFPLACEHOLDER!",
 			diff:           "Test diff",
 			modelName:      "gemini-1.5-flash",
 			maxTokens:      1000,
@@ -350,7 +350,7 @@ func TestCheckTokenLimit(t *testing.T) {
 		},
 		{
 			name:           "over token limit",
-			promptTemplate: "Test prompt with {{Diff}}",
+			promptTemplate: "Test prompt with !YAWNDIFFPLACEHOLDER!",
 			diff:           "Test diff",
 			modelName:      "gemini-1.5-flash",
 			maxTokens:      100,
@@ -364,7 +364,7 @@ func TestCheckTokenLimit(t *testing.T) {
 		},
 		{
 			name:           "token counting fails",
-			promptTemplate: "Test prompt with {{Diff}}",
+			promptTemplate: "Test prompt with !YAWNDIFFPLACEHOLDER!",
 			diff:           "Test diff",
 			modelName:      "gemini-1.5-flash",
 			maxTokens:      100,
@@ -377,7 +377,7 @@ func TestCheckTokenLimit(t *testing.T) {
 		},
 		{
 			name:           "different model",
-			promptTemplate: "Test prompt with {{Diff}}",
+			promptTemplate: "Test prompt with !YAWNDIFFPLACEHOLDER!",
 			diff:           "Test diff",
 			modelName:      "gemini-1.5-pro",
 			maxTokens:      1000,
@@ -403,7 +403,7 @@ func TestCheckTokenLimit(t *testing.T) {
 			// Create a simplified version of checkTokenLimit that uses our mock
 			checkLimit := func(promptTemplate, diff string, modelName string, maxTokens int) error {
 				ctx := context.Background()
-				finalPrompt := strings.Replace(promptTemplate, "{{Diff}}", diff, 1)
+				finalPrompt := strings.Replace(promptTemplate, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 				tokenCount, err := mockCountTokensForText(ctx, modelName, finalPrompt)
 				if err != nil {
 					return nil

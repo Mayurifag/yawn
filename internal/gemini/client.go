@@ -130,7 +130,7 @@ func (c *GenaiClient) checkTokenLimit(promptTemplate, diff string, modelName str
 	ctx := context.Background()
 
 	// Prepare the text content as we would for the actual request
-	finalPrompt := strings.Replace(promptTemplate, "{{Diff}}", diff, 1)
+	finalPrompt := strings.Replace(promptTemplate, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 
 	// Use the CountTokensForText method for accurate count
 	tokenCount, err := c.CountTokensForText(ctx, modelName, finalPrompt)
@@ -241,7 +241,7 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 	temp := temperature
 	model.SetTemperature(temp)
 
-	finalPrompt := strings.Replace(promptTemplate, "{{Diff}}", diff, 1)
+	finalPrompt := strings.Replace(promptTemplate, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(finalPrompt))
 	if err != nil {
