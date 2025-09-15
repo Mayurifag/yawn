@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean ci fmt lint test coverage release
+.PHONY: all build install uninstall clean ci fmt lint test coverage release rerelease _create_tag
 
 # Variables
 APP_NAME := yawn
@@ -65,6 +65,16 @@ coverage:
 	$(GOTEST) -v -race -coverprofile=coverage.out -covermode=atomic ./...
 	$(GOTOOL) cover -html=coverage.out
 
+# Internal function to create and push a tag
+_create_tag:
+	@if [ -z "$(TAG)" ]; then \
+		echo "Error: TAG variable is required"; \
+		exit 1; \
+	fi
+	@echo "Creating tag: $(TAG)"
+	@git tag -a $(TAG) -m "Release $(TAG)"
+	@git push origin $(TAG)
+
 # Release - bump version and push new tag
 release:
 	@echo "==> Creating new release..."
@@ -75,5 +85,19 @@ release:
 	patch=$$((patch + 1)); \
 	new_tag="v$$major.$$minor.$$patch"; \
 	echo "Current tag: $$current_tag, New tag: $$new_tag"; \
-	git tag -a $$new_tag -m "Release $$new_tag"; \
-	git push origin $$new_tag
+	$(MAKE) _create_tag TAG=$$new_tag
+
+# Re-release - remove previous tag and create new release
+rerelease:
+	@echo "==> Re-releasing (removing previous tag and creating new one)..."
+	@current_tag=$$(git describe --tags --abbrev=0 2>/dev/null); \
+	if [ -z "$$current_tag" ]; then \
+		echo "No previous tag found, creating initial release..."; \
+		$(MAKE) release; \
+	else \
+		echo "Removing previous tag: $$current_tag"; \
+		git tag -d $$current_tag 2>/dev/null || true; \
+		git push origin :refs/tags/$$current_tag 2>/dev/null || true; \
+		echo "Re-creating the same tag: $$current_tag"; \
+		$(MAKE) _create_tag TAG=$$current_tag; \
+	fi
