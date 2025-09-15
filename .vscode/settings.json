@@ -1,10 +1,10 @@
 {
-    "files.exclude": {
-        "yawn": true,
-        "coverage.out": true
-    },
-    "search.exclude": {
-        "yawn": true,
-        "coverage.out": true
-    }
+  "files.exclude": {
+    "yawn": true,
+    "coverage.out": true
+  },
+  "search.exclude": {
+    "yawn": true,
+    "coverage.out": true
+  }
 }

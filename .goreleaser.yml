@@ -10,6 +10,7 @@ before:
     - go mod tidy
     # you may remove this if you don't need go generate
     # - go generate ./...
+
 builds:
   - # Build configuration for the main yawn binary
     id: yawn
@@ -28,43 +29,35 @@ builds:
     goarch:
       - amd64
       - arm64
-    # Optional: Specify specific GOARM for ARM builds if needed (e.g., 6, 7)
-    # goarm:
-    #   - '6'
-    # Optional: Set ldflags for version injection, stripping symbols, etc.
-    # The -s -w flags reduce binary size. The -X flag injects the version.
+    # Optimized ldflags for performance and size
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    # Build flags for optimization
+    flags:
+      - -trimpath
+    # Additional build options for performance
+    asmflags:
+      - all=-trimpath={{.Env.GOPATH}}
+    gcflags:
+      - all=-trimpath={{.Env.GOPATH}}
 
-# archives:
-#   - # Archive configuration
-#     id: yawn-archives
-#     format_overrides:
-#       - goos: windows
-#         format: zip
-#     # Optional: Name template for the archive files.
-#     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
-#     # Optional: Add extra files like README, LICENSE to the archive.
-#     # files:
-#     #   - README.md
-#     #   - LICENSE
+# Disable archives - we want only binaries
+archives:
+  - format: binary
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}{{ if .Mips }}_{{ .Mips }}{{ end }}"
 
-# We are skipping checksum generation as requested
+# Disable checksum generation as requested
 checksum:
-  name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
-
-# We are skipping snapshot generation as requested
-# snapshot:
-#   name_template: "{{ incpatch .Version }}-next"
+  disable: true
 
 changelog:
   sort: asc
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - 'merge conflict'
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "merge conflict"
       - Merge pull request
       - Merge branch
 
