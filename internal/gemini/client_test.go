@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/genai"
 )
 
 func TestNewClient(t *testing.T) {
@@ -89,9 +89,7 @@ func TestCleanCommitMessage(t *testing.T) {
 
 func TestGenaiClient_GenerateCommitMessage_TokenLimit(t *testing.T) {
 	// Use a mock client instead
-	var mock MockGeminiClient
-
-	mock = MockGeminiClient{
+	mock := MockGeminiClient{
 		GenerateCommitMessageFunc: func(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 			// Simulate the token limit error
 			return "", NewGeminiError(
@@ -461,16 +459,10 @@ func TestHandleGenerateContentError(t *testing.T) {
 		expectedMsg  string
 	}{
 		{
-			name:         "prompt blocked",
-			err:          &genai.BlockedError{PromptFeedback: &genai.PromptFeedback{BlockReason: genai.BlockReasonUnspecified}},
+			name:         "safety error",
+			err:          errors.New("content blocked for safety reasons"),
 			expectedType: ErrSafety,
 			expectedMsg:  "content blocked for safety reasons",
-		},
-		{
-			name:         "response blocked",
-			err:          &genai.BlockedError{Candidate: &genai.Candidate{FinishReason: genai.FinishReasonSafety}},
-			expectedType: ErrSafety,
-			expectedMsg:  "response blocked by safety settings",
 		},
 		{
 			name:         "auth error",
@@ -524,8 +516,8 @@ func TestProcessGenaiResponse(t *testing.T) {
 				Candidates: []*genai.Candidate{
 					{
 						Content: &genai.Content{
-							Parts: []genai.Part{
-								genai.Text("feat: add feature"),
+							Parts: []*genai.Part{
+								{Text: "feat: add feature"},
 							},
 						},
 					},
@@ -554,7 +546,7 @@ func TestProcessGenaiResponse(t *testing.T) {
 				Candidates: []*genai.Candidate{
 					{
 						Content: &genai.Content{
-							Parts: []genai.Part{},
+							Parts: []*genai.Part{},
 						},
 					},
 				},
@@ -568,8 +560,8 @@ func TestProcessGenaiResponse(t *testing.T) {
 				Candidates: []*genai.Candidate{
 					{
 						Content: &genai.Content{
-							Parts: []genai.Part{
-								genai.Blob{},
+							Parts: []*genai.Part{
+								{InlineData: &genai.Blob{}},
 							},
 						},
 					},
@@ -584,8 +576,8 @@ func TestProcessGenaiResponse(t *testing.T) {
 				Candidates: []*genai.Candidate{
 					{
 						Content: &genai.Content{
-							Parts: []genai.Part{
-								genai.Text(""),
+							Parts: []*genai.Part{
+								{Text: ""},
 							},
 						},
 					},

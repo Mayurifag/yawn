@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.comcom/BurntSushi/toml"
+	"github.com/BurntSushi/toml"
 )
 
 const (

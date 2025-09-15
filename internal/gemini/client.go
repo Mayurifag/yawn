@@ -2,13 +2,11 @@ package gemini
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 const (
@@ -54,7 +52,10 @@ func (c *GenaiClient) initClient() error {
 		return fmt.Errorf("API key is required")
 	}
 
-	client, err := genai.NewClient(context.Background(), option.WithAPIKey(c.apiKey))
+	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+		APIKey:  c.apiKey,
+		Backend: genai.BackendGeminiAPI,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create Gemini client: %w", err)
 	}
@@ -121,8 +122,7 @@ func (c *GenaiClient) CountTokensForText(ctx context.Context, modelName string, 
 		}
 	}
 
-	model := c.client.GenerativeModel(modelName)
-	resp, err := model.CountTokens(ctx, genai.Text(text))
+	resp, err := c.client.Models.CountTokens(ctx, modelName, []*genai.Content{{Parts: []*genai.Part{{Text: text}}}}, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count tokens: %w", err)
 	}
@@ -155,33 +155,13 @@ func (c *GenaiClient) checkTokenLimit(promptTemplate, diff string, modelName str
 }
 
 func (c *GenaiClient) handleGenerateContentError(err error) error {
-	var blockedErr *genai.BlockedError
-	if errors.As(err, &blockedErr) {
-		if blockedErr.PromptFeedback != nil && blockedErr.PromptFeedback.BlockReason != genai.BlockReasonUnspecified {
-			return NewGeminiError(
-				ErrSafety,
-				fmt.Sprintf("prompt blocked: %s", blockedErr.PromptFeedback.BlockReason),
-				err,
-			)
-		}
-
-		if blockedErr.Candidate != nil && blockedErr.Candidate.FinishReason == genai.FinishReasonSafety {
-			return NewGeminiError(
-				ErrSafety,
-				"response blocked by safety settings",
-				err,
-			)
-		}
-
-		return NewGeminiError(
-			ErrSafety,
-			"content blocked for safety reasons",
-			err,
-		)
-	}
-
+	// For now, we'll handle errors based on error message content
+	// The new SDK may have different error types that we'll need to discover
 	errMsg := err.Error()
 	switch {
+	case strings.Contains(errMsg, "safety"), strings.Contains(errMsg, "blocked"):
+		return NewGeminiError(ErrSafety, "content blocked for safety reasons", err)
+
 	case strings.Contains(errMsg, "authentication"), strings.Contains(errMsg, "invalid token"),
 		strings.Contains(errMsg, "auth"), strings.Contains(errMsg, "credential"):
 		return NewGeminiError(ErrAuth, "invalid API key or authentication failed", err)
@@ -213,8 +193,8 @@ func (c *GenaiClient) processGenaiResponse(resp *genai.GenerateContentResponse) 
 	}
 
 	part := candidate.Content.Parts[0]
-	text, ok := part.(genai.Text)
-	if !ok {
+	// Check if this is a text part (not an image, blob, etc.)
+	if part.Text == "" && part.InlineData != nil {
 		return "", NewGeminiError(
 			ErrInvalidFormat,
 			"received non-text response from Gemini API",
@@ -222,7 +202,7 @@ func (c *GenaiClient) processGenaiResponse(resp *genai.GenerateContentResponse) 
 		)
 	}
 
-	message := string(text)
+	message := part.Text
 	if message == "" {
 		return "", NewGeminiError(
 			ErrEmptyMessage,
@@ -240,13 +220,13 @@ func (c *GenaiClient) generateWithModel(ctx context.Context, modelName string, p
 		return "", err
 	}
 
-	model := c.client.GenerativeModel(modelName)
-	temp := temperature
-	model.SetTemperature(temp)
-
 	finalPrompt := strings.Replace(promptTemplate, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 
-	resp, err := model.GenerateContent(ctx, genai.Text(finalPrompt))
+	resp, err := c.client.Models.GenerateContent(ctx, modelName, []*genai.Content{{
+		Parts: []*genai.Part{{Text: finalPrompt}},
+	}}, &genai.GenerateContentConfig{
+		Temperature: &temperature,
+	})
 	if err != nil {
 		return "", c.handleGenerateContentError(err)
 	}

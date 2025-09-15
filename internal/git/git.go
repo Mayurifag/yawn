@@ -209,22 +209,31 @@ func (c *ExecGitClient) HasAnyChanges() (bool, error) {
 // GetDiff retrieves the diff of staged changes, ignoring binary files' content.
 // It returns the diff output for text files and a summary for binary files.
 func (c *ExecGitClient) GetDiff() (string, error) {
-	// Use --numstat to identify text vs binary files
+	numstatOutput, err := c.getNumstatOutput()
+	if err != nil || numstatOutput == "" {
+		return "", err
+	}
+
+	textFiles, binaryFiles := c.parseNumstatOutput(numstatOutput)
+	diffs := c.collectDiffs(textFiles, binaryFiles)
+
+	return strings.Join(diffs, "\n"), nil
+}
+
+// getNumstatOutput retrieves the numstat output for staged changes.
+func (c *ExecGitClient) getNumstatOutput() (string, error) {
 	numstatOutput, err := c.runGitCommand("diff", "--cached", "--numstat", "--no-color")
 	if err != nil {
 		if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
-			numstatOutput = gitErr.Output
-		} else {
-			return "", nil // No changes or an actual error we can't distinguish
+			return gitErr.Output, nil
 		}
+		return "", nil // No changes or an actual error we can't distinguish
 	}
+	return numstatOutput, nil
+}
 
-	if numstatOutput == "" {
-		return "", nil // No changes
-	}
-
-	var textFiles []string
-	var binaryFiles []string
+// parseNumstatOutput parses the numstat output to separate text and binary files.
+func (c *ExecGitClient) parseNumstatOutput(numstatOutput string) (textFiles, binaryFiles []string) {
 	lines := strings.Split(numstatOutput, "\n")
 
 	for _, line := range lines {
@@ -243,36 +252,39 @@ func (c *ExecGitClient) GetDiff() (string, error) {
 		}
 	}
 
+	return textFiles, binaryFiles
+}
+
+// collectDiffs collects diff output for both text and binary files.
+func (c *ExecGitClient) collectDiffs(textFiles, binaryFiles []string) []string {
 	var diffs []string
 
-	// Get diff for text files
 	if len(textFiles) > 0 {
-		args := append([]string{"diff", "--cached", "--no-color", "--"}, textFiles...)
-		output, err := c.runGitCommand(args...)
-		if err != nil {
-			if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
-				diffs = append(diffs, gitErr.Output)
-			}
-			// else: suppress error, probably no diff for text files (e.g. only mode change)
-		} else if output != "" {
-			diffs = append(diffs, output)
+		if diff := c.getDiffForFiles(textFiles); diff != "" {
+			diffs = append(diffs, diff)
 		}
 	}
 
-	// For binary files, append the standard "Binary files ... differ" message.
 	if len(binaryFiles) > 0 {
-		args := append([]string{"diff", "--cached", "--no-color", "--"}, binaryFiles...)
-		output, err := c.runGitCommand(args...)
-		if err != nil {
-			if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
-				diffs = append(diffs, gitErr.Output)
-			}
-		} else if output != "" {
-			diffs = append(diffs, output)
+		if diff := c.getDiffForFiles(binaryFiles); diff != "" {
+			diffs = append(diffs, diff)
 		}
 	}
 
-	return strings.Join(diffs, "\n"), nil
+	return diffs
+}
+
+// getDiffForFiles gets the diff output for a list of files.
+func (c *ExecGitClient) getDiffForFiles(files []string) string {
+	args := append([]string{"diff", "--cached", "--no-color", "--"}, files...)
+	output, err := c.runGitCommand(args...)
+	if err != nil {
+		if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
+			return gitErr.Output
+		}
+		return ""
+	}
+	return output
 }
 
 // StageChanges stages all changes in the repository.
