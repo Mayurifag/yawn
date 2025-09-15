@@ -218,7 +218,7 @@ func (a *App) getTokenCount(ctx context.Context, geminiClient gemini.Client, dif
 
 	// Prepare the prompt content for token counting
 	finalPrompt := strings.Replace(a.Config.Prompt, "!YAWNDIFFPLACEHOLDER!", diff, 1)
-	tokenCount, err := geminiClient.CountTokensForText(tokenCtx, a.Config.GeminiModel, finalPrompt)
+	tokenCount, err := geminiClient.CountTokensForText(tokenCtx, gemini.PrimaryModel, finalPrompt)
 	if err == nil {
 		tokenCountStr = fmt.Sprintf("%d", tokenCount)
 	} else if a.Config.Verbose {
@@ -235,7 +235,7 @@ func (a *App) generateCommitMessage(ctx context.Context, geminiClient gemini.Cli
 	defer cancel()
 
 	spinner := ui.StartSpinner("Generating commit message...")
-	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.GeminiModel, a.Config.Prompt, diff, a.Config.MaxTokens, a.Config.Temperature)
+	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.Prompt, diff, a.Config.MaxTokens, a.Config.Temperature)
 	ui.StopSpinner(spinner)
 
 	if err != nil {

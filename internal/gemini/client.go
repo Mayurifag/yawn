@@ -11,9 +11,14 @@ import (
 	"google.golang.org/api/option"
 )
 
+const (
+	PrimaryModel  = "gemini-2.5-flash"
+	FallbackModel = "gemini-2.5-flash-lite"
+)
+
 // Client defines the interface for interacting with the Gemini API.
 type Client interface {
-	GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
+	GenerateCommitMessage(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
 	CountTokensForText(ctx context.Context, modelName string, text string) (int, error)
 }
 
@@ -229,10 +234,8 @@ func (c *GenaiClient) processGenaiResponse(resp *genai.GenerateContentResponse) 
 	return cleanCommitMessage(message), nil
 }
 
-// GenerateCommitMessage generates a commit message using the Gemini API.
-// It takes the model name, prompt template, diff content, max tokens, and temperature as parameters.
-// Returns the generated message and any error encountered.
-func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
+// generateWithModel is a helper to generate a commit message with a specific model.
+func (c *GenaiClient) generateWithModel(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
 	if err := c.checkTokenLimit(promptTemplate, diff, modelName, maxTokens); err != nil {
 		return "", err
 	}
@@ -251,15 +254,32 @@ func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, modelName strin
 	return c.processGenaiResponse(resp)
 }
 
+// GenerateCommitMessage generates a commit message using the Gemini API.
+// It tries the primary model first, and falls back to a secondary model on error.
+func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
+	message, err := c.generateWithModel(ctx, PrimaryModel, promptTemplate, diff, maxTokens, temperature)
+	if err != nil {
+		// Attempt fallback
+		message, fallbackErr := c.generateWithModel(ctx, FallbackModel, promptTemplate, diff, maxTokens, temperature)
+		if fallbackErr != nil {
+			// Return the original error because it's probably more relevant
+			return "", err
+		}
+		return message, nil
+	}
+
+	return message, nil
+}
+
 // MockGeminiClient is a mock implementation of Client.
 type MockGeminiClient struct {
-	GenerateCommitMessageFunc func(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
+	GenerateCommitMessageFunc func(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
 	CountTokensForTextFunc    func(ctx context.Context, modelName string, text string) (int, error)
 }
 
-func (m *MockGeminiClient) GenerateCommitMessage(ctx context.Context, model, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
+func (m *MockGeminiClient) GenerateCommitMessage(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
 	if m.GenerateCommitMessageFunc != nil {
-		return m.GenerateCommitMessageFunc(ctx, model, promptTemplate, diff, maxTokens, temperature)
+		return m.GenerateCommitMessageFunc(ctx, promptTemplate, diff, maxTokens, temperature)
 	}
 	return "feat: add new feature\n\nImplement the feature based on the diff.", nil
 }

@@ -9,26 +9,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BurntSushi/toml"
+	"github.comcom/BurntSushi/toml"
 )
 
 const (
-	AppName                    = "yawn"
-	ProjectConfigName          = ".yawn.toml"
-	UserConfigDirName          = "yawn"
-	UserConfigFileName         = "config.toml"
-	EnvPrefix                  = "YAWN_"
-	DefaultGeminiModel         = "gemini-2.5-flash-lite"
-	DefaultFallbackGeminiModel = "gemini-2.5-flash"
-	DefaultMaxTokens           = 1000000
-	DefaultTimeoutSecs         = 15
-	DefaultAutoStage           = false
-	DefaultAutoPush            = false
-	DefaultPushCommand         = "git push origin HEAD"
-	DefaultVerbose             = false
-	DefaultWaitForSSHKeys      = false
-	DefaultTemperature         = 0.1
-	DefaultPrompt              = `Generate a commit message.
+	AppName               = "yawn"
+	ProjectConfigName     = ".yawn.toml"
+	UserConfigDirName     = "yawn"
+	UserConfigFileName    = "config.toml"
+	EnvPrefix             = "YAWN_"
+	DefaultMaxTokens      = 1000000
+	DefaultTimeoutSecs    = 15
+	DefaultAutoStage      = false
+	DefaultAutoPush       = false
+	DefaultPushCommand    = "git push origin HEAD"
+	DefaultVerbose        = false
+	DefaultWaitForSSHKeys = false
+	DefaultTemperature    = 0.1
+	DefaultPrompt         = `Generate a commit message.
 
 - ALWAYS follow Conventional Commits specification (https://www.conventionalcommits.org/en/v1.0.0/)
 - Description, type and scope must start with a lowercase letter
@@ -74,7 +72,6 @@ Here is the diff to analyze:
 // Config holds the application configuration. Fields must be exported for TOML decoding.
 type Config struct {
 	GeminiAPIKey          string  `toml:"gemini_api_key"`
-	GeminiModel           string  `toml:"gemini_model"`
 	MaxTokens             int     `toml:"max_tokens"`
 	RequestTimeoutSeconds int     `toml:"request_timeout_seconds"`
 	Prompt                string  `toml:"prompt,multiline"`
@@ -84,7 +81,6 @@ type Config struct {
 	Verbose               bool    `toml:"verbose"`
 	WaitForSSHKeys        bool    `toml:"wait_for_ssh_keys"`
 	Temperature           float32 `toml:"temperature"`
-	FallbackGeminiModel   string  `toml:"fallback_gemini_model"`
 
 	sources map[string]string `toml:"-"` // Key: field name, Value: source (default, user, project, env, flag)
 }
@@ -326,7 +322,6 @@ func applyProjectConfig(cfg *Config, projectPath string) error {
 
 func defaultConfig() Config {
 	return Config{
-		GeminiModel:           DefaultGeminiModel,
 		MaxTokens:             DefaultMaxTokens,
 		RequestTimeoutSeconds: DefaultTimeoutSecs,
 		Prompt:                DefaultPrompt,
@@ -336,7 +331,6 @@ func defaultConfig() Config {
 		Verbose:               DefaultVerbose,
 		WaitForSSHKeys:        DefaultWaitForSSHKeys,
 		Temperature:           DefaultTemperature,
-		FallbackGeminiModel:   DefaultFallbackGeminiModel,
 		// API Key has no default
 	}
 }
@@ -353,15 +347,6 @@ var tomlConfigHandlers = []tomlConfigHandler{
 			if metadata.IsDefined("gemini_api_key") && loadedCfg.GeminiAPIKey != "" {
 				baseCfg.GeminiAPIKey = loadedCfg.GeminiAPIKey
 				baseCfg.sources["GeminiAPIKey"] = source
-			}
-		},
-	},
-	{
-		key: "gemini_model",
-		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
-			if metadata.IsDefined("gemini_model") && loadedCfg.GeminiModel != "" {
-				baseCfg.GeminiModel = loadedCfg.GeminiModel
-				baseCfg.sources["GeminiModel"] = source
 			}
 		},
 	},
@@ -446,15 +431,6 @@ var tomlConfigHandlers = []tomlConfigHandler{
 			}
 		},
 	},
-	{
-		key: "fallback_gemini_model",
-		handler: func(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
-			if metadata.IsDefined("fallback_gemini_model") && loadedCfg.FallbackGeminiModel != "" {
-				baseCfg.FallbackGeminiModel = loadedCfg.FallbackGeminiModel
-				baseCfg.sources["FallbackGeminiModel"] = source
-			}
-		},
-	},
 }
 
 func mergeConfig(baseCfg *Config, loadedCfg Config, metadata toml.MetaData, source string) {
@@ -474,13 +450,6 @@ var envConfigHandlers = []envConfigHandler{
 		handler: func(cfg *Config, value string) {
 			cfg.GeminiAPIKey = value
 			cfg.sources["GeminiAPIKey"] = "env"
-		},
-	},
-	{
-		key: "GEMINI_MODEL",
-		handler: func(cfg *Config, value string) {
-			cfg.GeminiModel = value
-			cfg.sources["GeminiModel"] = "env"
 		},
 	},
 	{
@@ -558,13 +527,6 @@ var envConfigHandlers = []envConfigHandler{
 				cfg.Temperature = float32(v)
 				cfg.sources["Temperature"] = "env"
 			}
-		},
-	},
-	{
-		key: "FALLBACK_GEMINI_MODEL",
-		handler: func(cfg *Config, value string) {
-			cfg.FallbackGeminiModel = value
-			cfg.sources["FallbackGeminiModel"] = "env"
 		},
 	},
 }
@@ -651,7 +613,6 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 
 	// Create config with default values - except for prompt which we'll handle separately
 	cfg := map[string]interface{}{
-		"gemini_model":            DefaultGeminiModel,
 		"max_tokens":              DefaultMaxTokens,
 		"request_timeout_seconds": DefaultTimeoutSecs,
 		"auto_stage":              DefaultAutoStage,
@@ -660,7 +621,6 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 		"verbose":                 DefaultVerbose,
 		"wait_for_ssh_keys":       DefaultWaitForSSHKeys,
 		"temperature":             DefaultTemperature, // Controls randomness in generation (0.0-1.0)
-		"fallback_gemini_model":   DefaultFallbackGeminiModel,
 	}
 
 	// Only include API key if it's provided
@@ -740,7 +700,6 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 func toMap(c Config) map[string]interface{} {
 	return map[string]interface{}{
 		"GeminiAPIKey":          c.GeminiAPIKey,
-		"GeminiModel":           c.GeminiModel,
 		"MaxTokens":             c.MaxTokens,
 		"RequestTimeoutSeconds": c.RequestTimeoutSeconds,
 		"Prompt":                c.Prompt,
@@ -750,7 +709,6 @@ func toMap(c Config) map[string]interface{} {
 		"Verbose":               c.Verbose,
 		"WaitForSSHKeys":        c.WaitForSSHKeys,
 		"Temperature":           c.Temperature,
-		"FallbackGeminiModel":   c.FallbackGeminiModel,
 	}
 }
 
@@ -762,8 +720,8 @@ func logConfigSources(cfg Config) {
 
 	// Define desired order
 	orderedKeys := []string{
-		"GeminiAPIKey", "GeminiModel", "MaxTokens", "RequestTimeoutSeconds",
-		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose", "WaitForSSHKeys", "Temperature", "FallbackGeminiModel",
+		"GeminiAPIKey", "MaxTokens", "RequestTimeoutSeconds",
+		"Prompt", "AutoStage", "AutoPush", "PushCommand", "Verbose", "WaitForSSHKeys", "Temperature",
 	}
 	// Use ordered keys if they exist in sources
 	processedKeys := make(map[string]bool)
@@ -876,8 +834,8 @@ func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte,
 
 	// Write the configuration values
 	configKeys := []string{
-		"gemini_api_key", "gemini_model", "max_tokens", "request_timeout_seconds",
-		"auto_stage", "auto_push", "push_command", "verbose", "prompt", "wait_for_ssh_keys", "temperature", "fallback_gemini_model",
+		"gemini_api_key", "max_tokens", "request_timeout_seconds",
+		"auto_stage", "auto_push", "push_command", "verbose", "prompt", "wait_for_ssh_keys", "temperature",
 	}
 
 	for _, key := range configKeys {

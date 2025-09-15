@@ -15,13 +15,13 @@ In its most basic form, you make changes, run `yawn`, and boom – your code is 
 
 But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customizable**:
 
-*   Tweak the AI prompt or use different Gemini model? ✅
-*   Automatically stage changes, commit and push? ✅
-*   Override defaults using environment variables or additional parameters? ✅
-*   Override config per project? ✅
-*   Avoid Gemini API limits? ✅
-*   Sensible defaults? ✅
-*   Need to push skipping Git hooks (`git push --no-verify`)? You may even force push, if you want. ✅
+* Tweak the AI prompt or use different Gemini model? ✅
+* Automatically stage changes, commit and push? ✅
+* Override defaults using environment variables or additional parameters? ✅
+* Override config per project? ✅
+* Avoid Gemini API limits? ✅
+* Sensible defaults? ✅
+* Need to push skipping Git hooks (`git push --no-verify`)? You may even force push, if you want. ✅
 
 It **really** adapts to your workflow, that's why I made it and why it is better
 than any other Git commit message generator I've tried.
@@ -30,16 +30,18 @@ than any other Git commit message generator I've tried.
 
 ## Installation
 
-Requires Go 1.24+. Make sure `$GOPATH/bin` or `$HOME/go/bin` is in your `PATH`.
+### Binary
 
-Run: `go install github.com/Mayurifag/yawn/cmd/yawn@latest`
-
-There are also pre-compiled binaries in packages, yet I am too lazy to write
-instructions to install them in Windows, MacOS and Linux. Yeah, those `curl`
-ones.
+Place `yawn` binary from Releases in your `PATH` folder and make it executable.
 
 Pro-tip: `alias q="yawn"` is very useful, add it after first tries + config
 adaptations and your workflow will be changed forever. 😉
+
+### Building from Source
+
+Requires Go 1.24+. Make sure `$GOPATH/bin` or `$HOME/go/bin` is in your `PATH`.
+
+Run: `go install github.com/Mayurifag/yawn/cmd/yawn@latest`
 
 ---
 
@@ -47,14 +49,14 @@ adaptations and your workflow will be changed forever. 😉
 
 Want to tweak things? `yawn` is flexible!
 
-*   **See all options:** Run `yawn --generate-config` to see a commented default configuration file (`.yawn.toml`).
-*   **Common tweaks:**
-    *   `gemini_model`: Use a different Gemini model.
-    *   `prompt`: Rewrite the instructions for the AI.
-    *   `ask_stage`: Set to `false` to never stage automatically.
-    *   `auto_push`: Set to `true` to always push after commit.
-    *   `push_command`: Change how `yawn` pushes (e.g., `git push --no-verify origin HEAD`).
-    *   `wait_for_ssh_keys`: Set to `true` to make yawn wait until SSH keys are available via `ssh-add -l` before pushing. Useful for workflows involving tools like KeePassXC where the agent might not have keys immediately. Defaults to `false`.
+* **See all options:** Run `yawn --generate-config` to see a commented default configuration file (`.yawn.toml`).
+* **Common tweaks:**
+  * `gemini_model`: Use a different Gemini model.
+  * `prompt`: Rewrite the instructions for the AI.
+  * `ask_stage`: Set to `false` to never stage automatically.
+  * `auto_push`: Set to `true` to always push after commit.
+  * `push_command`: Change how `yawn` pushes (e.g., `git push --no-verify origin HEAD`).
+  * `wait_for_ssh_keys`: Set to `true` to make yawn wait until SSH keys are available via `ssh-add -l` before pushing. Useful for workflows involving tools like KeePassXC where the agent might not have keys immediately. Defaults to `false`.
 
 Place your customizations in `./.yawn.toml` (project-specific) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
 

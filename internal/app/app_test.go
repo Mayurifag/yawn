@@ -38,7 +38,6 @@ func TestGenerateAndCommitChanges(t *testing.T) {
 	// Create minimal test configuration
 	cfg := config.Config{
 		GeminiAPIKey: "test-api-key",
-		GeminiModel:  "gemini-1.5-flash",
 		MaxTokens:    1000,
 		Temperature:  0.1,
 		Prompt:       "Generate commit message for this diff: !YAWNDIFFPLACEHOLDER!",
