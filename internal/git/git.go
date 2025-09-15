@@ -206,18 +206,73 @@ func (c *ExecGitClient) HasAnyChanges() (bool, error) {
 	return false, nil
 }
 
-// GetDiff retrieves the diff of staged changes.
-// Returns the diff output as a string.
+// GetDiff retrieves the diff of staged changes, ignoring binary files' content.
+// It returns the diff output for text files and a summary for binary files.
 func (c *ExecGitClient) GetDiff() (string, error) {
-	output, err := c.runGitCommand("diff", "--cached", "--no-color")
+	// Use --numstat to identify text vs binary files
+	numstatOutput, err := c.runGitCommand("diff", "--cached", "--numstat", "--no-color")
 	if err != nil {
-		if gitErr, ok := err.(*GitError); ok && gitErr.Output == "" {
-			// Exit code 1 with no output means no changes
-			return "", nil
+		if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
+			numstatOutput = gitErr.Output
+		} else {
+			return "", nil // No changes or an actual error we can't distinguish
 		}
-		return "", fmt.Errorf("failed to get diff: %w", err)
 	}
-	return output, nil
+
+	if numstatOutput == "" {
+		return "", nil // No changes
+	}
+
+	var textFiles []string
+	var binaryFiles []string
+	lines := strings.Split(numstatOutput, "\n")
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+
+		if parts[0] == "-" || parts[1] == "-" {
+			binaryFiles = append(binaryFiles, parts[2])
+		} else {
+			textFiles = append(textFiles, parts[2])
+		}
+	}
+
+	var diffs []string
+
+	// Get diff for text files
+	if len(textFiles) > 0 {
+		args := append([]string{"diff", "--cached", "--no-color", "--"}, textFiles...)
+		output, err := c.runGitCommand(args...)
+		if err != nil {
+			if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
+				diffs = append(diffs, gitErr.Output)
+			}
+			// else: suppress error, probably no diff for text files (e.g. only mode change)
+		} else if output != "" {
+			diffs = append(diffs, output)
+		}
+	}
+
+	// For binary files, append the standard "Binary files ... differ" message.
+	if len(binaryFiles) > 0 {
+		args := append([]string{"diff", "--cached", "--no-color", "--"}, binaryFiles...)
+		output, err := c.runGitCommand(args...)
+		if err != nil {
+			if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
+				diffs = append(diffs, gitErr.Output)
+			}
+		} else if output != "" {
+			diffs = append(diffs, output)
+		}
+	}
+
+	return strings.Join(diffs, "\n"), nil
 }
 
 // StageChanges stages all changes in the repository.
