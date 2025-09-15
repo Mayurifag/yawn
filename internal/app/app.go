@@ -11,6 +11,7 @@ import (
 	"github.com/Mayurifag/yawn/internal/gemini"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/Mayurifag/yawn/internal/ui"
+	"google.golang.org/api/iterator"
 )
 
 // App orchestrates the yawn application logic.
@@ -29,17 +30,12 @@ func NewApp(cfg config.Config, gitClient git.GitClient) *App {
 	}
 }
 
-// setupAndCheckPrerequisites performs initial setup and checks:
-// - Starts verbose logging
-// - Ensures API key is available
-// - Checks for changes (staged or unstaged)
-// Returns whether there are changes and any error encountered.
+// setupAndCheckPrerequisites performs initial setup and checks.
 func (a *App) setupAndCheckPrerequisites() (bool, error) {
 	if a.Config.Verbose {
 		fmt.Fprintln(os.Stderr, "[APP] Starting yawn - AI Git Commiter using Google Gemini")
 	}
 
-	// Check for API key
 	if a.Config.GeminiAPIKey == "" {
 		ui.PrintInfo("No API key found. Please provide your Google Gemini API key.")
 		fmt.Fprintln(os.Stderr, "You can get one from: https://makersuite.google.com/app/apikey")
@@ -48,15 +44,12 @@ func (a *App) setupAndCheckPrerequisites() (bool, error) {
 			return false, fmt.Errorf("API key is required")
 		}
 
-		// Save the API key to user config
 		if err := config.SaveAPIKeyToUserConfig(apiKey); err != nil {
-			// Log error but continue since we have the key in memory
 			ui.PrintError(fmt.Sprintf("Warning: Failed to save API key to config file: %v", err))
 		}
 		a.Config.GeminiAPIKey = apiKey
 	}
 
-	// Check for any changes (staged or unstaged)
 	hasChanges, err := a.GitClient.HasAnyChanges()
 	if err != nil {
 		return false, fmt.Errorf("failed to check for changes: %w", err)
@@ -73,11 +66,7 @@ func (a *App) setupAndCheckPrerequisites() (bool, error) {
 }
 
 // ensureStagedChanges ensures that changes are staged for commit.
-// If auto_stage is enabled, stages all changes automatically.
-// Otherwise, prompts the user to stage changes if needed.
-// Returns an error if staging fails or is declined when required.
 func (a *App) ensureStagedChanges() error {
-	// First check if there are already staged changes
 	hasStaged, err := a.GitClient.HasStagedChanges()
 	if err != nil {
 		return fmt.Errorf("failed to check for staged changes: %w", err)
@@ -97,7 +86,6 @@ func (a *App) ensureStagedChanges() error {
 	}
 
 	if hasUnstaged {
-		// Handle unstaged changes based on AutoStage setting
 		if a.Config.AutoStage {
 			if a.Config.Verbose {
 				fmt.Fprintf(os.Stderr, "[DEBUG] Auto-staging enabled, staging all changes\n")
@@ -118,7 +106,6 @@ func (a *App) ensureStagedChanges() error {
 		}
 	}
 
-	// Verify we have staged changes after potential staging
 	hasStaged, err = a.GitClient.HasStagedChanges()
 	if err != nil {
 		return fmt.Errorf("failed to check for staged changes: %w", err)
@@ -136,37 +123,26 @@ func (a *App) ensureStagedChanges() error {
 }
 
 // generateAndCommitChanges handles the commit message generation and commit execution.
-// It retrieves the staged diff, generates a message using Gemini, and commits the changes.
-// Returns an error if any step fails.
 func (a *App) generateAndCommitChanges(ctx context.Context) error {
-	// Get and validate staged changes
 	diff, err := a.getAndValidateDiff()
 	if err != nil {
 		return err
 	}
 
-	// Create Gemini client
 	geminiClient, err := gemini.NewClient(a.Config.GeminiAPIKey)
 	if err != nil {
 		return fmt.Errorf("failed to create Gemini client: %w", err)
 	}
 
-	// Gather pre-generation information
 	branchName, additions, deletions := a.gatherCommitInfo()
-
-	// Display token count and prepare for generation
 	tokenCountStr := a.getTokenCount(ctx, geminiClient, diff)
-
-	// Display pre-generation info to the user
 	ui.PrintPreGenerationInfo(tokenCountStr, a.Config.MaxTokens, branchName, additions, deletions)
 
-	// Generate and process commit message
-	message, err := a.generateCommitMessage(ctx, geminiClient, diff)
+	message, err := a.generateCommitMessageAndStream(ctx, geminiClient, diff)
 	if err != nil {
 		return err
 	}
 
-	// Commit changes
 	if err := a.GitClient.Commit(message); err != nil {
 		return fmt.Errorf("failed to commit changes: %w", err)
 	}
@@ -189,19 +165,17 @@ func (a *App) getAndValidateDiff() (string, error) {
 
 // gatherCommitInfo collects information about the current branch and diff stats.
 func (a *App) gatherCommitInfo() (branchName string, additions int, deletions int) {
-	// Get current branch name
 	branchName, err := a.GitClient.GetCurrentBranch()
 	if err != nil {
-		branchName = "unknown" // Fallback if we can't get the branch name
+		branchName = "unknown"
 		if a.Config.Verbose {
 			fmt.Fprintf(os.Stderr, "[APP] Failed to get current branch: %v\n", err)
 		}
 	}
 
-	// Get diff stats (additions and deletions)
 	additions, deletions, err = a.GitClient.GetDiffNumStatSummary()
 	if err != nil {
-		additions, deletions = 0, 0 // Fallback if we can't get the stats
+		additions, deletions = 0, 0
 		if a.Config.Verbose {
 			fmt.Fprintf(os.Stderr, "[APP] Failed to get diff stats: %v\n", err)
 		}
@@ -213,10 +187,9 @@ func (a *App) gatherCommitInfo() (branchName string, additions int, deletions in
 // getTokenCount counts tokens in the diff and returns a formatted string.
 func (a *App) getTokenCount(ctx context.Context, geminiClient gemini.Client, diff string) string {
 	tokenCountStr := "?"
-	tokenCtx, cancel := context.WithTimeout(ctx, 5*time.Second) // Short timeout for token counting
+	tokenCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Prepare the prompt content for token counting
 	finalPrompt := strings.Replace(a.Config.Prompt, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 	tokenCount, err := geminiClient.CountTokensForText(tokenCtx, gemini.PrimaryModel, finalPrompt)
 	if err == nil {
@@ -228,14 +201,13 @@ func (a *App) getTokenCount(ctx context.Context, geminiClient gemini.Client, dif
 	return tokenCountStr
 }
 
-// generateCommitMessage generates a commit message using the Gemini API.
-func (a *App) generateCommitMessage(ctx context.Context, geminiClient gemini.Client, diff string) (string, error) {
-	// Generate commit message using Gemini with timeout
+// generateCommitMessageAndStream generates a commit message and streams it to the console.
+func (a *App) generateCommitMessageAndStream(ctx context.Context, geminiClient gemini.Client, diff string) (string, error) {
 	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
 	defer cancel()
 
 	spinner := ui.StartSpinner("Generating commit message...")
-	message, err := geminiClient.GenerateCommitMessage(ctxTimeout, a.Config.Prompt, diff, a.Config.MaxTokens, a.Config.Temperature)
+	stream, err := geminiClient.GenerateCommitMessageStream(ctxTimeout, a.Config.Prompt, diff, a.Config.MaxTokens, a.Config.Temperature)
 	ui.StopSpinner(spinner)
 
 	if err != nil {
@@ -245,28 +217,37 @@ func (a *App) generateCommitMessage(ctx context.Context, geminiClient gemini.Cli
 		if strings.Contains(err.Error(), "token count") && strings.Contains(err.Error(), "exceeds limit") {
 			return "", fmt.Errorf("changes are too large for the configured 'max_tokens' (%d). Consider committing smaller changes or increasing the limit", a.Config.MaxTokens)
 		}
-		return "", fmt.Errorf("failed to generate commit message: %w", err)
+		return "", fmt.Errorf("failed to start commit message generation: %w", err)
 	}
 
+	ui.PrintInfo("Generated commit message:")
+	var messageBuilder strings.Builder
+	for {
+		resp, err := stream.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			fmt.Println() // Newline after partial message
+			return "", fmt.Errorf("error receiving commit message stream: %w", err)
+		}
+
+		chunk := gemini.GetTextFromResponse(resp)
+		fmt.Print(chunk)
+		messageBuilder.WriteString(chunk)
+	}
+	fmt.Println() // Final newline after streaming is complete
+
+	message := messageBuilder.String()
 	if message == "" {
 		return "", fmt.Errorf("empty commit message received from Gemini")
 	}
 
-	// Display the generated message
-	ui.PrintInfo("Generated commit message:")
-	fmt.Println(message)
-
 	return message, nil
 }
 
-// handlePushOperation manages the push workflow:
-// - Checks if push is needed (auto-push or user prompt)
-// - Verifies remotes exist
-// - Executes the push command
-// - Reports success/failure
-// Returns an error if any step fails.
+// handlePushOperation manages the push workflow.
 func (a *App) handlePushOperation() error {
-	// Check for remotes
 	hasRemotes, err := a.Pusher.HasRemotes()
 	if err != nil {
 		return fmt.Errorf("failed to check for remote repositories: %w", err)
@@ -276,18 +257,15 @@ func (a *App) handlePushOperation() error {
 		return nil
 	}
 
-	// Check if push is needed
 	if !a.Config.AutoPush {
 		if !ui.AskYesNo(fmt.Sprintf("Would you like to push changes now? (using: %s)", a.Config.PushCommand), true) {
-			return nil // User declined push
+			return nil
 		}
 	} else {
 		ui.PrintInfo(fmt.Sprintf("Auto-pushing changes (enabled via %s)...", a.Config.GetConfigSource("AutoPush")))
 	}
 
-	// Wait for SSH keys if configured
 	if a.Config.WaitForSSHKeys {
-		// Check if SSH keys are available
 		keysAvailable, err := git.CheckSSHKeysAvailable()
 		if err != nil {
 			if strings.Contains(err.Error(), "ssh-add command not found") {
@@ -299,23 +277,15 @@ func (a *App) handlePushOperation() error {
 			ui.PrintInfo("Continuing with push operation...")
 		} else if !keysAvailable {
 			ui.PrintInfo(fmt.Sprintf("Waiting for SSH keys to become available (enabled via %s)... Press CTRL+C to cancel.", a.Config.GetConfigSource("WaitForSSHKeys")))
-
-			// Start a spinner
 			spinner := ui.StartSpinner("Checking for SSH keys...")
-
-			// Wait until keys become available
 			for !keysAvailable {
-				// Wait for 0.5 seconds before checking again
 				time.Sleep(500 * time.Millisecond)
-
-				// Check if keys are now available
 				keysAvailable, err = git.CheckSSHKeysAvailable()
 				if err != nil {
 					ui.StopSpinner(spinner)
 					ui.PrintError(fmt.Sprintf("Error checking SSH keys: %v", err))
 					break
 				}
-
 				if keysAvailable {
 					ui.StopSpinner(spinner)
 					ui.PrintSuccess("SSH keys detected.")
@@ -325,7 +295,6 @@ func (a *App) handlePushOperation() error {
 		}
 	}
 
-	// Execute push command
 	spinner := ui.StartSpinner("Pushing changes...")
 	result, err := a.Pusher.ExecutePush(a.Config.PushCommand)
 	ui.StopSpinner(spinner)
@@ -337,7 +306,6 @@ func (a *App) handlePushOperation() error {
 		return fmt.Errorf("push command failed")
 	}
 
-	// Report success and repository link if available
 	ui.PrintSuccess("Successfully pushed changes.")
 	if result.RepoLink != "" {
 		ui.PrintRepoLink("View repository:", result.RepoLink)
@@ -348,27 +316,23 @@ func (a *App) handlePushOperation() error {
 
 // Run executes the main application logic.
 func (a *App) Run() error {
-	// Setup and check prerequisites
 	hasChanges, err := a.setupAndCheckPrerequisites()
 	if err != nil {
 		return err
 	}
 	if !hasChanges {
 		ui.PrintInfo("No changes detected for commit.")
-		return nil // No changes to commit
+		return nil
 	}
 
-	// Ensure changes are staged
 	if err := a.ensureStagedChanges(); err != nil {
 		return err
 	}
 
-	// Generate commit message and commit changes
 	if err := a.generateAndCommitChanges(context.Background()); err != nil {
 		return err
 	}
 
-	// Handle push operation if needed
 	if err := a.handlePushOperation(); err != nil {
 		return err
 	}

@@ -3,9 +3,9 @@ package gemini
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
+	"google.golang.org/api/iterator"
 	"google.golang.org/genai"
 )
 
@@ -14,9 +14,31 @@ const (
 	FallbackModel = "gemini-2.5-flash-lite"
 )
 
+// StreamIterator wraps the Go 1.23+ iterator to provide a Next() method
+type StreamIterator struct {
+	responses chan *genai.GenerateContentResponse
+	errors    chan error
+	done      chan struct{}
+}
+
+// Next returns the next response from the stream
+func (s *StreamIterator) Next() (*genai.GenerateContentResponse, error) {
+	select {
+	case resp, ok := <-s.responses:
+		if !ok {
+			return nil, iterator.Done
+		}
+		return resp, nil
+	case err := <-s.errors:
+		return nil, err
+	case <-s.done:
+		return nil, iterator.Done
+	}
+}
+
 // Client defines the interface for interacting with the Gemini API.
 type Client interface {
-	GenerateCommitMessage(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
+	GenerateCommitMessageStream(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (*StreamIterator, error)
 	CountTokensForText(ctx context.Context, modelName string, text string) (int, error)
 }
 
@@ -28,7 +50,6 @@ type GenaiClient struct {
 
 // NewClient creates a new Gemini client.
 func NewClient(apiKey string) (*GenaiClient, error) {
-	// API key is now required
 	if apiKey == "" {
 		return nil, fmt.Errorf("API key is required")
 	}
@@ -37,7 +58,6 @@ func NewClient(apiKey string) (*GenaiClient, error) {
 		apiKey: apiKey,
 	}
 
-	// Initialize the client immediately
 	if err := c.initClient(); err != nil {
 		return nil, err
 	}
@@ -46,7 +66,6 @@ func NewClient(apiKey string) (*GenaiClient, error) {
 }
 
 // initClient initializes the underlying genai.Client.
-// It returns an error if the API key is empty or if client creation fails.
 func (c *GenaiClient) initClient() error {
 	if c.apiKey == "" {
 		return fmt.Errorf("API key is required")
@@ -71,20 +90,17 @@ type GeminiError struct {
 	Err     error
 }
 
-// Error implements the error interface for GeminiError.
 func (e *GeminiError) Error() string {
 	return fmt.Sprintf("gemini error (%s): %s", e.Type, e.Message)
 }
 
-// Unwrap implements the errors.Unwrap interface for GeminiError.
 func (e *GeminiError) Unwrap() error {
 	return e.Err
 }
 
-// GeminiErrorType defines the possible error types that can occur when using the Gemini API.
+// GeminiErrorType defines the possible error types.
 type GeminiErrorType string
 
-// Predefined error types for Gemini API operations
 const (
 	ErrTokenLimit    GeminiErrorType = "token_limit"
 	ErrAuth          GeminiErrorType = "auth"
@@ -96,7 +112,6 @@ const (
 	ErrEmptyMessage  GeminiErrorType = "empty_message"
 )
 
-// NewGeminiError creates a new GeminiError with the specified type, message, and wrapped error.
 func NewGeminiError(errType GeminiErrorType, message string, err error) *GeminiError {
 	return &GeminiError{
 		Type:    string(errType),
@@ -105,16 +120,22 @@ func NewGeminiError(errType GeminiErrorType, message string, err error) *GeminiE
 	}
 }
 
-// cleanCommitMessage cleans and formats the AI-generated commit message.
-func cleanCommitMessage(message string) string {
-	message = strings.TrimSpace(message)
-	message = regexp.MustCompile(`[ \t]+`).ReplaceAllString(message, " ")
-	message = strings.ReplaceAll(message, "\r\n", "\n")
-	return message
+// GetTextFromResponse extracts the text content from a streaming response chunk.
+func GetTextFromResponse(resp *genai.GenerateContentResponse) string {
+	var textBuilder strings.Builder
+	if resp != nil {
+		for _, cand := range resp.Candidates {
+			if cand.Content != nil {
+				for _, part := range cand.Content.Parts {
+					textBuilder.WriteString(part.Text)
+				}
+			}
+		}
+	}
+	return textBuilder.String()
 }
 
-// CountTokensForText counts the number of tokens in a text using the SDK method.
-// This provides an accurate token count directly from the model.
+// CountTokensForText counts the number of tokens in a text.
 func (c *GenaiClient) CountTokensForText(ctx context.Context, modelName string, text string) (int, error) {
 	if c.client == nil {
 		if err := c.initClient(); err != nil {
@@ -122,7 +143,7 @@ func (c *GenaiClient) CountTokensForText(ctx context.Context, modelName string, 
 		}
 	}
 
-	resp, err := c.client.Models.CountTokens(ctx, modelName, []*genai.Content{{Parts: []*genai.Part{{Text: text}}}}, nil)
+	resp, err := c.client.Models.CountTokens(ctx, modelName, genai.Text(text), nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count tokens: %w", err)
 	}
@@ -131,143 +152,106 @@ func (c *GenaiClient) CountTokensForText(ctx context.Context, modelName string, 
 }
 
 func (c *GenaiClient) checkTokenLimit(promptTemplate, diff string, modelName string, maxTokens int) error {
-	// Use the context.Background() since we expect token counting to be fast
 	ctx := context.Background()
-
-	// Prepare the text content as we would for the actual request
 	finalPrompt := strings.Replace(promptTemplate, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 
-	// Use the CountTokensForText method for accurate count
 	tokenCount, err := c.CountTokensForText(ctx, modelName, finalPrompt)
 	if err != nil {
-		// If we can't count tokens, log the error but don't fail (this is not critical)
 		return nil
 	}
 
 	if tokenCount > maxTokens {
 		return NewGeminiError(
 			ErrTokenLimit,
-			fmt.Sprintf("token count (%d) exceeds limit (%d). Consider reducing the diff size or increasing max_tokens", tokenCount, maxTokens),
+			fmt.Sprintf("token count (%d) exceeds limit (%d)", tokenCount, maxTokens),
 			nil,
 		)
 	}
 	return nil
 }
 
-func (c *GenaiClient) handleGenerateContentError(err error) error {
-	// For now, we'll handle errors based on error message content
-	// The new SDK may have different error types that we'll need to discover
-	errMsg := err.Error()
-	switch {
-	case strings.Contains(errMsg, "safety"), strings.Contains(errMsg, "blocked"):
-		return NewGeminiError(ErrSafety, "content blocked for safety reasons", err)
-
-	case strings.Contains(errMsg, "authentication"), strings.Contains(errMsg, "invalid token"),
-		strings.Contains(errMsg, "auth"), strings.Contains(errMsg, "credential"):
-		return NewGeminiError(ErrAuth, "invalid API key or authentication failed", err)
-
-	case strings.Contains(errMsg, "rate limit"), strings.Contains(errMsg, "quota"):
-		return NewGeminiError(ErrRateLimit, "API rate limit exceeded. Please try again later", err)
-
-	default:
-		return fmt.Errorf("failed to generate commit message: %w", err)
-	}
-}
-
-func (c *GenaiClient) processGenaiResponse(resp *genai.GenerateContentResponse) (string, error) {
-	if resp == nil || len(resp.Candidates) == 0 {
-		return "", NewGeminiError(
-			ErrEmptyResponse,
-			"received empty response from Gemini API",
-			nil,
-		)
-	}
-
-	candidate := resp.Candidates[0]
-	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
-		return "", NewGeminiError(
-			ErrEmptyContent,
-			"received empty content from Gemini API",
-			nil,
-		)
-	}
-
-	part := candidate.Content.Parts[0]
-	// Check if this is a text part (not an image, blob, etc.)
-	if part.Text == "" && part.InlineData != nil {
-		return "", NewGeminiError(
-			ErrInvalidFormat,
-			"received non-text response from Gemini API",
-			nil,
-		)
-	}
-
-	message := part.Text
-	if message == "" {
-		return "", NewGeminiError(
-			ErrEmptyMessage,
-			"received empty message from Gemini API",
-			nil,
-		)
-	}
-
-	return cleanCommitMessage(message), nil
-}
-
-// generateWithModel is a helper to generate a commit message with a specific model.
-func (c *GenaiClient) generateWithModel(ctx context.Context, modelName string, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
+func (c *GenaiClient) generateStreamWithModel(ctx context.Context, modelName, promptTemplate, diff string, maxTokens int, temperature float32) (*StreamIterator, error) {
 	if err := c.checkTokenLimit(promptTemplate, diff, modelName, maxTokens); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	finalPrompt := strings.Replace(promptTemplate, "!YAWNDIFFPLACEHOLDER!", diff, 1)
 
-	resp, err := c.client.Models.GenerateContent(ctx, modelName, []*genai.Content{{
-		Parts: []*genai.Part{{Text: finalPrompt}},
-	}}, &genai.GenerateContentConfig{
-		Temperature: &temperature,
-	})
-	if err != nil {
-		return "", c.handleGenerateContentError(err)
+	config := &genai.GenerateContentConfig{
+		Temperature:     &temperature,
+		MaxOutputTokens: int32(maxTokens),
 	}
 
-	return c.processGenaiResponse(resp)
+	stream := c.client.Models.GenerateContentStream(ctx, modelName, genai.Text(finalPrompt), config)
+
+	// Create channels for the StreamIterator
+	responses := make(chan *genai.GenerateContentResponse, 1)
+	errors := make(chan error, 1)
+	done := make(chan struct{})
+
+	// Start a goroutine to process the stream
+	go func() {
+		defer close(responses)
+		defer close(errors)
+		defer close(done)
+
+		for resp, err := range stream {
+			if err != nil {
+				select {
+				case errors <- err:
+				case <-ctx.Done():
+					return
+				}
+				return
+			}
+
+			select {
+			case responses <- resp:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return &StreamIterator{
+		responses: responses,
+		errors:    errors,
+		done:      done,
+	}, nil
 }
 
-// GenerateCommitMessage generates a commit message using the Gemini API.
-// It tries the primary model first, and falls back to a secondary model on error.
-func (c *GenaiClient) GenerateCommitMessage(ctx context.Context, promptTemplate string, diff string, maxTokens int, temperature float32) (string, error) {
-	message, err := c.generateWithModel(ctx, PrimaryModel, promptTemplate, diff, maxTokens, temperature)
+// GenerateCommitMessageStream generates a commit message using the Gemini API and streams the response.
+func (c *GenaiClient) GenerateCommitMessageStream(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (*StreamIterator, error) {
+	iter, err := c.generateStreamWithModel(ctx, PrimaryModel, promptTemplate, diff, maxTokens, temperature)
 	if err != nil {
 		// Attempt fallback
-		message, fallbackErr := c.generateWithModel(ctx, FallbackModel, promptTemplate, diff, maxTokens, temperature)
+		iter, fallbackErr := c.generateStreamWithModel(ctx, FallbackModel, promptTemplate, diff, maxTokens, temperature)
 		if fallbackErr != nil {
-			// Return the original error because it's probably more relevant
-			return "", err
+			return nil, err
 		}
-		return message, nil
+		return iter, nil
 	}
-
-	return message, nil
+	return iter, nil
 }
 
 // MockGeminiClient is a mock implementation of Client.
 type MockGeminiClient struct {
-	GenerateCommitMessageFunc func(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (string, error)
-	CountTokensForTextFunc    func(ctx context.Context, modelName string, text string) (int, error)
+	GenerateCommitMessageStreamFunc func(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (*StreamIterator, error)
+	CountTokensForTextFunc          func(ctx context.Context, modelName string, text string) (int, error)
 }
 
-func (m *MockGeminiClient) GenerateCommitMessage(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (string, error) {
-	if m.GenerateCommitMessageFunc != nil {
-		return m.GenerateCommitMessageFunc(ctx, promptTemplate, diff, maxTokens, temperature)
+func (m *MockGeminiClient) GenerateCommitMessageStream(ctx context.Context, promptTemplate, diff string, maxTokens int, temperature float32) (*StreamIterator, error) {
+	if m.GenerateCommitMessageStreamFunc != nil {
+		return m.GenerateCommitMessageStreamFunc(ctx, promptTemplate, diff, maxTokens, temperature)
 	}
-	return "feat: add new feature\n\nImplement the feature based on the diff.", nil
+	// This is difficult to mock properly without a real iterator.
+	// Returning an error is a safe default for tests.
+	return nil, fmt.Errorf("mock GenerateCommitMessageStream not implemented")
 }
 
 func (m *MockGeminiClient) CountTokensForText(ctx context.Context, modelName string, text string) (int, error) {
 	if m.CountTokensForTextFunc != nil {
 		return m.CountTokensForTextFunc(ctx, modelName, text)
 	}
-	// Default implementation returns a conservative estimate
 	return len(strings.Fields(text)), nil
 }
