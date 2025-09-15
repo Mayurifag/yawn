@@ -1,7 +1,8 @@
-.PHONY: all build install clean ci fmt lint test coverage release
+.PHONY: all build install uninstall clean ci fmt lint test coverage release
 
 # Variables
 APP_NAME := yawn
+INSTALL_NAME := yawn-debug
 CMD_PATH := ./cmd/$(APP_NAME)
 OUTPUT_DIR ?= $(CURDIR)
 GOBIN ?= $(HOME)/.local/bin
@@ -27,9 +28,19 @@ build: ci
 
 # Install the application to GOBIN
 install: ci
-	@echo "==> Installing $(APP_NAME) to $(GOBIN)..."
+	@echo "==> Installing $(INSTALL_NAME) to $(GOBIN)..."
 	@mkdir -p $(GOBIN)
-	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOBIN)/$(APP_NAME) $(CMD_PATH)
+	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOBIN)/$(INSTALL_NAME) $(CMD_PATH)
+
+# Uninstall the application from GOBIN
+uninstall:
+	@echo "==> Uninstalling $(INSTALL_NAME) from $(GOBIN)..."
+	@if [ -f "$(GOBIN)/$(INSTALL_NAME)" ]; then \
+		rm -f $(GOBIN)/$(INSTALL_NAME) && \
+		echo "$(INSTALL_NAME) successfully removed from $(GOBIN)"; \
+	else \
+		echo "$(INSTALL_NAME) not found in $(GOBIN)"; \
+	fi
 
 # Clean build artifacts
 clean:
