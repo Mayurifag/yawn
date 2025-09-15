@@ -51,7 +51,6 @@ Want to tweak things? `yawn` is flexible!
 
 * **See all options:** Run `yawn --generate-config` to see a commented default configuration file (`.yawn.toml`).
 * **Common tweaks:**
-  * `gemini_model`: Use a different Gemini model.
   * `prompt`: Rewrite the instructions for the AI.
   * `ask_stage`: Set to `false` to never stage automatically.
   * `auto_push`: Set to `true` to always push after commit.
