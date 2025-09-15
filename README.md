@@ -78,7 +78,6 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 ## Roadmap
 
-* Check if there is a way to output not full commit message but rather token by token in console.
 * Remove verbose mode - it is not needed and complicates code
 * Think of better config handling. Current solution is complex. Though I also need source of config, koanf seems missing this functionality. Plus better init file handling. I need to write custom provider for those. Maybe koanf rewrite with custom provider.
 * git pull before commit

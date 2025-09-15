@@ -16,25 +16,24 @@ const (
 
 // StreamIterator wraps the Go 1.23+ iterator to provide a Next() method
 type StreamIterator struct {
-	stream func() (*genai.GenerateContentResponse, error)
-	done   bool
+	responses chan *genai.GenerateContentResponse
+	errors    chan error
+	done      chan struct{}
 }
 
 // Next returns the next response from the stream
 func (s *StreamIterator) Next() (*genai.GenerateContentResponse, error) {
-	if s.done {
-		return nil, iterator.Done
-	}
-
-	resp, err := s.stream()
-	if err != nil {
-		if err.Error() == "iterator done" {
-			s.done = true
+	select {
+	case resp, ok := <-s.responses:
+		if !ok {
 			return nil, iterator.Done
 		}
+		return resp, nil
+	case err := <-s.errors:
 		return nil, err
+	case <-s.done:
+		return nil, iterator.Done
 	}
-	return resp, nil
 }
 
 // Client defines the interface for interacting with the Gemini API.
@@ -185,38 +184,40 @@ func (c *GenaiClient) generateStreamWithModel(ctx context.Context, modelName, pr
 
 	stream := c.client.Models.GenerateContentStream(ctx, modelName, genai.Text(finalPrompt), config)
 
-	// Create a channel to convert the Go 1.23+ iterator to a function
-	respChan := make(chan *genai.GenerateContentResponse)
-	errChan := make(chan error)
-	done := make(chan bool)
+	// Create channels for the StreamIterator
+	responses := make(chan *genai.GenerateContentResponse, 1)
+	errors := make(chan error, 1)
+	done := make(chan struct{})
 
+	// Start a goroutine to process the stream
 	go func() {
-		defer close(respChan)
-		defer close(errChan)
+		defer close(responses)
+		defer close(errors)
 		defer close(done)
 
 		for resp, err := range stream {
 			if err != nil {
-				errChan <- err
+				select {
+				case errors <- err:
+				case <-ctx.Done():
+					return
+				}
 				return
 			}
-			respChan <- resp
+
+			select {
+			case responses <- resp:
+			case <-ctx.Done():
+				return
+			}
 		}
-		done <- true
 	}()
 
-	streamFunc := func() (*genai.GenerateContentResponse, error) {
-		select {
-		case resp := <-respChan:
-			return resp, nil
-		case err := <-errChan:
-			return nil, err
-		case <-done:
-			return nil, fmt.Errorf("iterator done")
-		}
-	}
-
-	return &StreamIterator{stream: streamFunc}, nil
+	return &StreamIterator{
+		responses: responses,
+		errors:    errors,
+		done:      done,
+	}, nil
 }
 
 // GenerateCommitMessageStream generates a commit message using the Gemini API and streams the response.
