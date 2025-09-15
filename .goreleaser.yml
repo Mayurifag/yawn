@@ -35,11 +35,6 @@ builds:
     # Build flags for optimization
     flags:
       - -trimpath
-    # Additional build options for performance
-    asmflags:
-      - all=-trimpath={{.Env.GOPATH}}
-    gcflags:
-      - all=-trimpath={{.Env.GOPATH}}
 
 # Disable archives - we want only binaries
 archives:
