@@ -77,6 +77,15 @@ This project is released into the public domain under The Unlicense. See the [LI
 
 ## Roadmap
 
+* Fix
+
+```
+Auto-pushing changes (enabled via user home config)...
+The authenticity of host '[git.nnnnn.cfd]:222 ([152.89.168.232]:222)' can't be established.
+ED25519 key fingerprint is: SHA256:OkSB/zuvLttvf9VShx9xIITF6l3gUjhay2zb85OAXRE
+This key is not known by any other names.
+```
+
 * Remove verbose mode - it is not needed and complicates code
 * Think of better config handling. Current solution is complex. Though I also need source of config, koanf seems missing this functionality. Plus better init file handling. I need to write custom provider for those. Maybe koanf rewrite with custom provider.
 * git pull before commit
