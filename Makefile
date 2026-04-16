@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean ci fmt lint test coverage release rerelease _create_tag
+.PHONY: all build install install-release uninstall clean ci fmt lint test coverage release rerelease _create_tag
 
 # Variables
 APP_NAME := yawn
@@ -38,6 +38,15 @@ install: ci
 	@echo "==> Installing $(INSTALL_NAME) to $(GOBIN)..."
 	@mkdir -p $(GOBIN)
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOBIN)/$(INSTALL_NAME) $(CMD_PATH)
+
+# Install latest release via mise
+install-release:
+	@echo "==> Installing latest release of yawn via mise..."
+	mise use -g github:Mayurifag/yawn@latest
+	@if [ -f "$(GOBIN)/$(INSTALL_NAME)" ]; then \
+		rm -f $(GOBIN)/$(INSTALL_NAME) && \
+		echo "Removed $(INSTALL_NAME) from $(GOBIN)"; \
+	fi
 
 # Uninstall the application from GOBIN
 uninstall:
