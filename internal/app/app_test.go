@@ -1,75 +1,63 @@
 package app
 
 import (
-	"context"
 	"testing"
 
 	"github.com/Mayurifag/yawn/internal/config"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestWaitForSSHKeysConfig tests that the WaitForSSHKeys configuration is properly integrated
 func TestWaitForSSHKeysConfig(t *testing.T) {
-	// Create a test config with WaitForSSHKeys enabled
-	cfg := config.Config{
-		WaitForSSHKeys: true,
-	}
-
-	// Basic validation that the config field exists and is accessible
+	cfg := config.Config{WaitForSSHKeys: true}
 	if !cfg.WaitForSSHKeys {
 		t.Error("WaitForSSHKeys should be true when set")
 	}
 
-	// Verify the config structure has the expected field with default value
 	emptyCfg := config.Config{}
 	if emptyCfg.WaitForSSHKeys != config.DefaultWaitForSSHKeys {
-		t.Errorf("Default WaitForSSHKeys should be %v, got %v",
-			config.DefaultWaitForSSHKeys, emptyCfg.WaitForSSHKeys)
+		t.Errorf("Default WaitForSSHKeys should be %v, got %v", config.DefaultWaitForSSHKeys, emptyCfg.WaitForSSHKeys)
 	}
 }
 
-// TestGenerateAndCommitChanges tests that the generateAndCommitChanges function
-// properly calls token counting, branch name retrieval, and diff stat gathering
-func TestGenerateAndCommitChanges(t *testing.T) {
-	// Skip this test until we can properly mock the gemini.NewClient function
-	t.Skip("Skipping test that requires mocking package-level functions")
-
-	// Create minimal test configuration
-	cfg := config.Config{
-		GeminiAPIKey: "test-api-key",
-		MaxTokens:    1000,
-		Temperature:  0.1,
-		Prompt:       "Generate commit message for this diff: !YAWNDIFFPLACEHOLDER!",
+func TestEnsureStagedChanges(t *testing.T) {
+	tests := []struct {
+		name        string
+		autoStage   bool
+		hasStaged   bool
+		hasUnstaged bool
+		expectStage bool
+		expectErr   bool
+	}{
+		{"auto_stage + staged + unstaged stages all", true, true, true, true, false},
+		{"auto_stage + no staged + unstaged stages all", true, false, true, true, false},
+		{"no auto_stage + staged + unstaged skips staging", false, true, true, false, false},
+		{"no auto_stage + staged + no unstaged proceeds", false, true, false, false, false},
+		{"no changes returns error", false, false, false, false, true},
 	}
 
-	// Create mock git client
-	mockGit := &git.MockGitClient{
-		MockGetDiff: func() (string, error) {
-			return "test diff content", nil
-		},
-		MockGetCurrentBranch: func() (string, error) {
-			return "main", nil
-		},
-		MockGetDiffNumStatSummary: func() (int, int, error) {
-			return 42, 10, nil
-		},
-		MockCommit: func(message string) error {
-			// Verify the message is not empty
-			assert.NotEmpty(t, message)
-			return nil
-		},
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			staged := false
+			mockGit := &git.MockGitClient{
+				MockHasStagedChanges:   func() (bool, error) { return tc.hasStaged, nil },
+				MockHasUnstagedChanges: func() (bool, error) { return tc.hasUnstaged, nil },
+				MockStageChanges: func() error {
+					staged = true
+					return nil
+				},
+			}
+			a := &App{Config: config.Config{AutoStage: tc.autoStage}, GitClient: mockGit}
+
+			err := a.ensureStagedChanges()
+
+			if tc.expectErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectStage, staged)
+			}
+		})
 	}
-
-	// Create the app with our mocks
-	app := &App{
-		Config:    cfg,
-		GitClient: mockGit,
-	}
-
-	// Call the function being tested
-	err := app.generateAndCommitChanges(context.Background())
-
-	// Verify no error occurred
-	assert.NoError(t, err)
 }

@@ -153,25 +153,22 @@ func TestParseRemoteURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			info, err := ParseRemoteURL(tt.remoteURL)
 
-			// Check if we expect an error
 			if tt.expectedErrMsg != "" {
 				if err == nil {
 					t.Errorf("ParseRemoteURL() expected error containing %q, got nil", tt.expectedErrMsg)
 					return
 				}
-				if !contains(err.Error(), tt.expectedErrMsg) {
+				if !strings.Contains(err.Error(), tt.expectedErrMsg) {
 					t.Errorf("ParseRemoteURL() error = %v, expected to contain %q", err, tt.expectedErrMsg)
 				}
 				return
 			}
 
-			// We expect success
 			if err != nil {
 				t.Errorf("ParseRemoteURL() unexpected error: %v", err)
 				return
 			}
 
-			// Check RemoteInfo fields
 			if info.Host != tt.expectedInfo.Host {
 				t.Errorf("Host = %v, expected %v", info.Host, tt.expectedInfo.Host)
 			}
@@ -188,12 +185,6 @@ func TestParseRemoteURL(t *testing.T) {
 	}
 }
 
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
-}
-
-// TestGenerateRepoLink tests the GenerateRepoLink function.
 func TestGenerateRepoLink(t *testing.T) {
 	tests := []struct {
 		name     string
