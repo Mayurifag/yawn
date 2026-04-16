@@ -77,7 +77,6 @@ func TestGetDiffNumStatSummary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a mock git client that will return our test data
 			mockClient := &MockGitClient{
 				MockGetDiffNumStatSummary: func() (int, int, error) {
 					if tt.mockError != nil {
@@ -87,10 +86,8 @@ func TestGetDiffNumStatSummary(t *testing.T) {
 				},
 			}
 
-			// Call the function to test
 			additions, deletions, err := mockClient.GetDiffNumStatSummary()
 
-			// Check results
 			if tt.expError {
 				assert.Error(t, err)
 			} else {
@@ -185,40 +182,26 @@ func TestHasUnstagedChanges(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock git client that will handle the test scenarios
 			mockClient := &MockGitClient{
 				MockHasUnstagedChanges: func() (bool, error) {
-					// This function should mimic the implementation of ExecGitClient.HasUnstagedChanges
-					// but return predefined values for testing
-
-					// Simulate checking for modified files
 					if tt.diffError != nil {
 						if tt.diffOutput == "" {
-							// Simulate the case of exit code 1 with empty output (unstaged changes)
 							return true, nil
 						}
 						return false, tt.diffError
 					}
-
-					// Simulate checking for untracked files
 					if tt.lsFilesError != nil {
 						return false, tt.lsFilesError
 					}
-
-					// If there are untracked files, return true
 					if tt.lsFilesOutput != "" {
 						return true, nil
 					}
-
-					// Otherwise, no unstaged changes
 					return false, nil
 				},
 			}
 
-			// Call the function being tested
 			hasChanges, err := mockClient.HasUnstagedChanges()
 
-			// Verify results
 			if tt.expectErr {
 				assert.Error(t, err)
 			} else {
@@ -252,9 +235,6 @@ func TestMockGitClient_HasUnstagedChanges(t *testing.T) {
 }
 
 func TestExecGitClient_HasUnstagedChanges(t *testing.T) {
-	// Instead of trying to mock individual methods on ExecGitClient (which leads to linter errors),
-	// we'll test the logic of HasUnstagedChanges directly by creating appropriate scenarios.
-
 	tests := []struct {
 		name                  string
 		diffReturnsError      bool
@@ -298,36 +278,26 @@ func TestExecGitClient_HasUnstagedChanges(t *testing.T) {
 		},
 	}
 
-	// We'll create a mock GitClient implementation just for testing the HasUnstagedChanges function
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockGit := &MockGitClient{
 				MockHasUnstagedChanges: func() (bool, error) {
-					// Logic that mimics the implementation of ExecGitClient.HasUnstagedChanges
-
-					// Simulate git diff --no-color --quiet
 					if tt.diffReturnsError {
 						if tt.diffErrorIsExitCode1 {
-							// Simulates exit code 1 with empty output (unstaged changes)
 							return true, nil
 						}
 						return false, fmt.Errorf("failed to check for unstaged changes: some error")
 					}
-
-					// Simulate git ls-files --others --exclude-standard
 					if tt.lsFilesReturnsError {
 						return false, fmt.Errorf("failed to check for untracked files: some error")
 					}
-
 					if tt.lsFilesHasOutput {
 						return true, nil
 					}
-
 					return false, nil
 				},
 			}
 
-			// Call the function and check the results
 			result, err := mockGit.HasUnstagedChanges()
 
 			if tt.expectedErrorContains != "" {

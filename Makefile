@@ -4,8 +4,15 @@
 APP_NAME := yawn
 INSTALL_NAME := yawn-debug
 CMD_PATH := ./cmd/$(APP_NAME)
+# Append .exe on Windows
+ifeq ($(OS),Windows_NT)
+INSTALL_NAME := $(INSTALL_NAME).exe
+APP_NAME := $(APP_NAME).exe
+endif
 OUTPUT_DIR ?= $(CURDIR)
 GOBIN ?= $(HOME)/.local/bin
+# Normalize Windows-style paths (e.g. from GOBIN env var set by mise on Windows)
+override GOBIN := $(shell cygpath -u '$(GOBIN)' 2>/dev/null || echo '$(GOBIN)')
 VERSION ?= $(shell git describe --tags --always --dirty)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 

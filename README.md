@@ -35,13 +35,36 @@ than any other Git commit message generator I've tried.
 Place `yawn` binary from Releases in your `PATH` folder and make it executable.
 
 Pro-tip: `alias q="yawn"` is very useful, add it after first tries + config
-adaptations and your workflow will be changed forever. 😉
+adaptations and your workflow will be changed forever. 😉 Same goes for
+`alias sq="yawn squash"` — squash your branch in two keystrokes.
 
 ### Building from Source
 
 Requires Go 1.24+. Make sure `$GOPATH/bin` or `$HOME/go/bin` is in your `PATH`.
 
 Run: `go install github.com/Mayurifag/yawn/cmd/yawn@latest`
+
+---
+
+## Commands
+
+### `yawn` (default)
+
+Stages, commits with AI-generated message, and pushes.
+
+### `yawn squash`
+
+Squashes all commits on the current branch (since it diverged from `main`/`master`/`dev`) into a single AI-generated commit.
+
+- Must not be on a default branch (`main`, `master`, `dev`)
+- Shows how many commits were squashed
+- Streams the AI-generated commit message
+- Shows repository link after squash
+- If the working tree is dirty, you are asked what to do:
+  - **Enter** — cancel
+  - **s** — stash changes, squash, then restore
+  - **a** — add dirty changes into the squashed commit
+- After squashing, optionally force-pushes with `--force-with-lease` (auto if `squash_auto_push = true`)
 
 ---
 
@@ -55,6 +78,7 @@ Want to tweak things? `yawn` is flexible!
   * `ask_stage`: Set to `false` to never stage automatically.
   * `auto_push`: Set to `true` to always push after commit.
   * `push_command`: Change how `yawn` pushes (e.g., `git push --no-verify origin HEAD`).
+  * `squash_auto_push`: Set to `true` to automatically force-push after `yawn squash`. Defaults to `false`.
   * `wait_for_ssh_keys`: Set to `true` to make yawn wait until SSH keys are available via `ssh-add -l` before pushing. Useful for workflows involving tools like KeePassXC where the agent might not have keys immediately. Defaults to `false`.
 
 Place your customizations in `./.yawn.toml` (project-specific) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
