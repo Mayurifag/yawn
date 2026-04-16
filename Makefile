@@ -92,7 +92,7 @@ release:
 	patch=$$((patch + 1)); \
 	new_tag="v$$major.$$minor.$$patch"; \
 	echo "Current tag: $$current_tag, New tag: $$new_tag"; \
-	$(MAKE) _create_tag TAG=$$new_tag
+	"$(MAKE)" _create_tag TAG=$$new_tag
 
 # Re-release - remove previous tag and create new release
 rerelease:
@@ -100,11 +100,11 @@ rerelease:
 	@current_tag=$$(git describe --tags --abbrev=0 2>/dev/null); \
 	if [ -z "$$current_tag" ]; then \
 		echo "No previous tag found, creating initial release..."; \
-		$(MAKE) release; \
+		"$(MAKE)" release; \
 	else \
 		echo "Removing previous tag: $$current_tag"; \
 		git tag -d $$current_tag 2>/dev/null || true; \
 		git push origin :refs/tags/$$current_tag 2>/dev/null || true; \
 		echo "Re-creating the same tag: $$current_tag"; \
-		$(MAKE) _create_tag TAG=$$current_tag; \
+		"$(MAKE)" _create_tag TAG=$$current_tag; \
 	fi
