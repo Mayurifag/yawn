@@ -185,6 +185,99 @@ func TestParseRemoteURL(t *testing.T) {
 	}
 }
 
+func TestGeneratePRURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		owner    string
+		repo     string
+		branch   string
+		expected string
+	}{
+		{
+			name:     "GitHub feature branch",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "feature/my-feature",
+			expected: "https://github.com/owner/repo/compare/feature/my-feature?expand=1",
+		},
+		{
+			name:     "GitLab feature branch",
+			host:     "gitlab.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "feature/my-feature",
+			expected: "https://gitlab.com/owner/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature%2Fmy-feature",
+		},
+		{
+			name:     "Gitea custom host",
+			host:     "git.example.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "my-branch",
+			expected: "https://git.example.com/owner/repo/compare/my-branch?expand=1",
+		},
+		{
+			name:     "self-hosted GitLab",
+			host:     "gitlab.company.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "my-branch",
+			expected: "https://gitlab.company.com/owner/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=my-branch",
+		},
+		{
+			name:     "default branch main returns empty",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "main",
+			expected: "",
+		},
+		{
+			name:     "default branch master returns empty",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "master",
+			expected: "",
+		},
+		{
+			name:     "default branch dev returns empty",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "dev",
+			expected: "",
+		},
+		{
+			name:     "empty host returns empty",
+			host:     "",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "feature",
+			expected: "",
+		},
+		{
+			name:     "empty branch returns empty",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GeneratePRURL(tt.host, tt.owner, tt.repo, tt.branch)
+			if result != tt.expected {
+				t.Errorf("GeneratePRURL() = %q, expected %q", result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestGenerateRepoLink(t *testing.T) {
 	tests := []struct {
 		name     string

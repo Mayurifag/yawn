@@ -17,7 +17,7 @@ const (
 	dirtyAdd
 )
 
-var defaultBranchNames = []string{"main", "master", "dev"}
+var defaultBranchNames = map[string]bool{"main": true, "master": true, "dev": true}
 
 func (a *App) handleDirtyState() (dirtyAction, error) {
 	hasChanges, err := a.GitClient.HasAnyChanges()
@@ -26,6 +26,9 @@ func (a *App) handleDirtyState() (dirtyAction, error) {
 	}
 	if !hasChanges {
 		return dirtyClean, nil
+	}
+	if status, err := a.GitClient.GetStatusShort(); err == nil && status != "" {
+		ui.PrintDirtyChanges(status)
 	}
 	choice := ui.AskSquashDirtyAction()
 	switch choice {
@@ -43,11 +46,9 @@ func (a *App) squashSetup() (base string, count int, err error) {
 	if err != nil {
 		return
 	}
-	for _, def := range defaultBranchNames {
-		if branch == def {
-			err = fmt.Errorf("squash: cannot squash on default branch %q", branch)
-			return
-		}
+	if defaultBranchNames[branch] {
+		err = fmt.Errorf("squash: cannot squash on default branch %q", branch)
+		return
 	}
 	base, err = a.GitClient.FindBranchBase(branch)
 	if err != nil {
@@ -57,7 +58,7 @@ func (a *App) squashSetup() (base string, count int, err error) {
 	return
 }
 
-func (a *App) printSquashRepoLink() {
+func (a *App) printSquashLinks() {
 	remoteURL, err := a.GitClient.GetRemoteURL("")
 	if err != nil {
 		return
@@ -66,23 +67,43 @@ func (a *App) printSquashRepoLink() {
 	if err != nil {
 		return
 	}
-	if link := git.GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo); link != "" {
-		ui.PrintRepoLink("View repository:", link)
+	repoLink := git.GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo)
+	var suggestPRLink string
+	if branch, err := a.GitClient.GetCurrentBranch(); err == nil {
+		suggestPRLink = git.GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
 	}
+	printLinks(repoLink, "", suggestPRLink)
 }
 
-func (a *App) RunSquash(ctx context.Context) error {
-	if err := a.ensureAPIKey(); err != nil {
-		return err
-	}
-
-	base, count, err := a.squashSetup()
+func (a *App) handleSingleCommit() error {
+	hasChanges, err := a.GitClient.HasAnyChanges()
 	if err != nil {
 		return err
 	}
-	if count <= 1 {
-		ui.PrintInfo(fmt.Sprintf("Only %d commit(s) on branch — nothing to squash.", count))
+	if !hasChanges {
+		ui.PrintInfo("Only 1 commit on branch — nothing to squash.")
+		a.printSquashLinks()
 		return nil
+	}
+	if status, err := a.GitClient.GetStatusShort(); err == nil && status != "" {
+		ui.PrintDirtyChanges(status)
+	}
+	if ui.AskAmendDirtyAction() != "a" {
+		return fmt.Errorf("squash: cancelled")
+	}
+	ui.PrintInfo("Staging all changes and amending commit...")
+	if err := a.GitClient.StageChanges(); err != nil {
+		return err
+	}
+	if err := a.GitClient.AmendCommit(); err != nil {
+		return err
+	}
+	return a.handleSquashPush()
+}
+
+func (a *App) handleMultiCommitSquash(ctx context.Context, base string, count int) (err error) {
+	if err := a.ensureAPIKey(); err != nil {
+		return err
 	}
 
 	action, err := a.handleDirtyState()
@@ -94,18 +115,22 @@ func (a *App) RunSquash(ctx context.Context) error {
 	}
 
 	if action == dirtyAdd {
+		ui.PrintInfo("Staging all changes...")
 		if err := a.GitClient.StageChanges(); err != nil {
 			return err
 		}
 	}
 
 	if action == dirtyStash {
-		if err := a.GitClient.Stash(); err != nil {
+		if err = a.GitClient.Stash(); err != nil {
 			return err
 		}
 		defer func() {
 			if popErr := a.GitClient.StashPop(); popErr != nil {
 				ui.PrintError(fmt.Sprintf("stash pop failed: %v", popErr))
+				if err == nil {
+					err = popErr
+				}
 			}
 		}()
 	}
@@ -119,6 +144,23 @@ func (a *App) RunSquash(ctx context.Context) error {
 		return err
 	}
 
-	a.printSquashRepoLink()
 	return a.handleSquashPush()
+}
+
+func (a *App) RunSquash(ctx context.Context) error {
+	if err := a.autoPull(); err != nil {
+		return err
+	}
+
+	base, count, err := a.squashSetup()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("squash: no commits on branch")
+	}
+	if count == 1 {
+		return a.handleSingleCommit()
+	}
+	return a.handleMultiCommitSquash(ctx, base, count)
 }

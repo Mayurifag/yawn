@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/Mayurifag/yawn/internal/app"
 	"github.com/Mayurifag/yawn/internal/config"
@@ -13,6 +14,8 @@ import (
 
 var (
 	version = "dev"
+	commit  = ""
+	builtBy = ""
 
 	flagAPIKey         string
 	flagAutoStage      bool
@@ -117,6 +120,30 @@ var squashCmd = &cobra.Command{
 }
 
 func init() {
+	if builtBy == "goreleaser" {
+		ui.Version = version
+	} else {
+		sha := commit
+		if sha == "" {
+			if info, ok := debug.ReadBuildInfo(); ok {
+				for _, s := range info.Settings {
+					if s.Key == "vcs.revision" {
+						sha = s.Value
+						break
+					}
+				}
+			}
+		}
+		if len(sha) > 7 {
+			sha = sha[:7]
+		}
+		if sha != "" {
+			ui.Version = version + " (" + sha + ")"
+		} else {
+			ui.Version = version
+		}
+	}
+
 	rootCmd.Flags().StringVar(&flagAPIKey, "api-key", "", "Gemini API key (overrides config/env)")
 	rootCmd.Flags().BoolVar(&flagAutoStage, "auto-stage", false, "Automatically stage all unstaged changes without prompting")
 	rootCmd.Flags().BoolVar(&flagAutoPush, "auto-push", false, "Automatically push after commit")

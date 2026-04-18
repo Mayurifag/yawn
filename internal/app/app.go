@@ -25,6 +25,15 @@ func NewApp(cfg config.Config, gitClient git.GitClient) *App {
 	}
 }
 
+func (a *App) autoPull() error {
+	hasRemotes, err := a.GitClient.HasRemotes()
+	if err != nil || !hasRemotes {
+		return nil
+	}
+	ui.PrintInfo("Pulling latest changes...")
+	return a.GitClient.Pull()
+}
+
 func (a *App) ensureAPIKey() error {
 	if a.Config.GeminiAPIKey == "" {
 		ui.PrintInfo("No API key found. Please provide your Google Gemini API key.")
@@ -45,16 +54,11 @@ func (a *App) setupAndCheckPrerequisites() (bool, error) {
 	if err := a.ensureAPIKey(); err != nil {
 		return false, err
 	}
-
 	hasChanges, err := a.GitClient.HasAnyChanges()
 	if err != nil {
 		return false, fmt.Errorf("failed to check for changes: %w", err)
 	}
-	if !hasChanges {
-		return false, nil
-	}
-
-	return true, nil
+	return hasChanges, nil
 }
 
 func (a *App) ensureStagedChanges() error {
@@ -130,13 +134,8 @@ func (a *App) gatherCommitInfo() (branchName string, additions int, deletions in
 	if err != nil {
 		branchName = "unknown"
 	}
-
-	additions, deletions, err = a.GitClient.GetDiffNumStatSummary()
-	if err != nil {
-		additions, deletions = 0, 0
-	}
-
-	return branchName, additions, deletions
+	additions, deletions, _ = a.GitClient.GetDiffNumStatSummary()
+	return
 }
 
 func (a *App) generateCommitMessageAndStream(ctx context.Context, geminiClient gemini.Client, systemPrompt, userContent string) (string, error) {
@@ -167,14 +166,27 @@ func (a *App) generateCommitMessageAndStream(ctx context.Context, geminiClient g
 	return message, nil
 }
 
+func printLinks(repoLink, prLink, suggestPRLink string) {
+	if repoLink != "" {
+		ui.PrintRepoLink("View repository:", repoLink)
+	}
+	if prLink != "" {
+		ui.PrintRepoLink("View pull request:", prLink)
+	} else if suggestPRLink != "" {
+		ui.PrintRepoLink("Create pull request:", suggestPRLink)
+	}
+}
+
 func (a *App) Run(ctx context.Context) error {
+	if err := a.autoPull(); err != nil {
+		return err
+	}
 	hasChanges, err := a.setupAndCheckPrerequisites()
 	if err != nil {
 		return err
 	}
 	if !hasChanges {
-		ui.PrintInfo("No changes detected for commit.")
-		return nil
+		return a.handleUnpushedCommits()
 	}
 
 	if err := a.ensureStagedChanges(); err != nil {

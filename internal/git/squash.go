@@ -12,18 +12,14 @@ func (c *ExecGitClient) FindBranchBase(branch string) (string, error) {
 		return "", fmt.Errorf("failed to read reflog: %w", err)
 	}
 	suffix := " to " + branch
-	var base string
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "checkout:") && strings.HasSuffix(line, suffix) {
 			if parts := strings.Fields(line); len(parts) > 0 {
-				base = parts[0]
+				return parts[0], nil
 			}
 		}
 	}
-	if base == "" {
-		return "", fmt.Errorf("cannot determine branch base: no checkout entry found for %q in reflog", branch)
-	}
-	return base, nil
+	return "", fmt.Errorf("cannot determine branch base: no checkout entry found for %q in reflog", branch)
 }
 
 func (c *ExecGitClient) GetCommitCountRange(base string) (int, error) {

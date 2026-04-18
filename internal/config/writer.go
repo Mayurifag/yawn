@@ -29,15 +29,7 @@ func ensureUserConfigDir() (string, error) {
 func GenerateConfigContent(apiKey string) ([]byte, error) {
 	var buf bytes.Buffer
 
-	buf.WriteString("# Configuration file for yawn - AI Git Committer using Google Gemini\n")
-	buf.WriteString("#\n")
-	buf.WriteString("# Placement:\n")
-	buf.WriteString("#   ~/.config/yawn/config.toml (user config)\n")
-	buf.WriteString("#   ./.yawn.toml (project config, add to .gitignore)\n")
-	buf.WriteString("#\n")
-	buf.WriteString("# Precedence: CLI flags > env vars > project config > user config > defaults\n")
-	buf.WriteString("# Uncomment and change only the values you want to override.\n")
-	buf.WriteString("\n")
+	buf.WriteString("# Configuration file for yawn - AI Git Committer using Google Gemini\n#\n# Placement:\n#   ~/.config/yawn/config.toml (user config)\n#   ./.yawn.toml (project config, add to .gitignore)\n#\n# Precedence: CLI flags > env vars > project config > user config > defaults\n# Uncomment and change only the values you want to override.\n\n")
 
 	fmt.Fprintf(&buf, "gemini_api_key = %q\n\n", apiKey)
 
@@ -52,7 +44,7 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 
 	buf.WriteString("# prompt = '''\n")
 	for _, line := range strings.Split(DefaultPrompt, "\n") {
-		buf.WriteString("# " + line + "\n")
+		fmt.Fprintf(&buf, "# %s\n", line)
 	}
 	buf.WriteString("# '''\n")
 

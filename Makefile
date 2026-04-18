@@ -13,8 +13,9 @@ OUTPUT_DIR ?= $(CURDIR)
 GOBIN ?= $(HOME)/.local/bin
 # Normalize Windows-style paths (e.g. from GOBIN env var set by mise on Windows)
 override GOBIN := $(shell cygpath -u '$(GOBIN)' 2>/dev/null || echo '$(GOBIN)')
-VERSION ?= $(shell git describe --tags --always --dirty)
-LDFLAGS := -s -w -X main.version=$(VERSION)
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
 # Go commands
 GO := go
@@ -43,20 +44,13 @@ install: ci
 install-release:
 	@echo "==> Installing latest release of yawn via mise..."
 	mise use -g github:Mayurifag/yawn@latest
-	@if [ -f "$(GOBIN)/$(INSTALL_NAME)" ]; then \
-		rm -f $(GOBIN)/$(INSTALL_NAME) && \
-		echo "Removed $(INSTALL_NAME) from $(GOBIN)"; \
-	fi
+	mise reshim
+	"$(MAKE)" uninstall
 
 # Uninstall the application from GOBIN
 uninstall:
-	@echo "==> Uninstalling $(INSTALL_NAME) from $(GOBIN)..."
-	@if [ -f "$(GOBIN)/$(INSTALL_NAME)" ]; then \
-		rm -f $(GOBIN)/$(INSTALL_NAME) && \
-		echo "$(INSTALL_NAME) successfully removed from $(GOBIN)"; \
-	else \
-		echo "$(INSTALL_NAME) not found in $(GOBIN)"; \
-	fi
+	@echo "==> Uninstalling yawn-debug from $(GOBIN)..."
+	@rm -f "$(GOBIN)/yawn-debug" "$(GOBIN)/yawn-debug.exe"
 
 # Clean build artifacts
 clean:
