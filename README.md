@@ -5,9 +5,7 @@
 [![CI](https://github.com/Mayurifag/yawn/actions/workflows/ci.yml/badge.svg)](https://github.com/Mayurifag/yawn/actions/workflows/ci.yml)
 [![Release](https://github.com/Mayurifag/yawn/actions/workflows/release.yml/badge.svg)](https://github.com/Mayurifag/yawn/actions/workflows/release.yml)
 
-**Writing Git commit messages makes you yawn?** 🥱 Here is a tool that will stage/commit/push for you!
-
----
+**Writing Git commit messages makes you yawn?** 🥱 Here is a tool that will stage/commit/squash/push for you!
 
 ## Why Yawn?
 
@@ -17,34 +15,38 @@ But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customiza
 
 * Tweak the AI prompt or use different Gemini model? ✅
 * Automatically stage changes, commit and push? ✅
+* Squash the branch onto single commit fast? ✅
+* Have a link to repository and MR? ✅
+* Need to push skipping Git hooks (`git push --no-verify`)? You may even force push, if you want. ✅
+* Push failures are retried up to 3 times with exponential backoff before giving up. ✅
 * Override defaults using environment variables or additional parameters? ✅
 * Override config per project? ✅
-* Avoid Gemini API limits? ✅
-* Sensible defaults? ✅
-* Need to push skipping Git hooks (`git push --no-verify`)? You may even force push, if you want. ✅
 
 It **really** adapts to your workflow, that's why I made it and why it is better
 than any other Git commit message generator I've tried.
 
----
-
 ## Installation
 
-### Binary
+### Using release
 
-Place `yawn` binary from Releases in your `PATH` folder and make it executable.
+~~~sh
+mise use -g github:Mayurifag/yawn@latest # if you have mise installed
+# or place binary from Releases in one of your `$PATH` folders, make it executable.
+~~~
+
+**Optional:** Generate global config to customize defaults:
+
+~~~sh
+yawn --generate-config > ~/.config/yawn/config.toml
+~~~
 
 Pro-tip: `alias q="yawn"` is very useful, add it after first tries + config
 adaptations and your workflow will be changed forever. 😉 Same goes for
-`alias sq="yawn squash"` — squash your branch in two keystrokes.
+`alias sq="yawn squash"` — squash your branch commits into 1 with two keystrokes.
 
 ### Building from Source
 
-Requires Go 1.24+. Make sure `$GOPATH/bin` or `$HOME/go/bin` is in your `PATH`.
-
-Run: `go install github.com/Mayurifag/yawn/cmd/yawn@latest`
-
----
+`make install`
 
 ## Commands
 
@@ -52,71 +54,45 @@ Run: `go install github.com/Mayurifag/yawn/cmd/yawn@latest`
 
 Stages, commits with AI-generated message, and pushes.
 
+If there are no local changes but unpushed commits exist, `yawn` lists them (with date, author, and subject) and offers to push. With `auto_push: true`, it pushes automatically.
+
+After a successful push, `yawn` prints a PR creation link (GitHub compare URL or GitLab merge request URL) when you're on a non-default branch.
+
 ### `yawn squash`
 
 Squashes all commits on the current branch (since it diverged from `main`/`master`/`dev`) into a single AI-generated commit.
 
-- Must not be on a default branch (`main`, `master`, `dev`)
-- Shows how many commits were squashed
-- Streams the AI-generated commit message
-- Shows repository link after squash
-- If the working tree is dirty, you are asked what to do:
-  - **Enter** — cancel
-  - **s** — stash changes, squash, then restore
-  - **a** — add dirty changes into the squashed commit
-- After squashing, optionally force-pushes with `--force-with-lease` (auto if `squash_auto_push = true`)
+If you have uncommitted changes when squashing, `yawn` prompts: **[Enter]** cancel, **[s]** stash & restore after, **[a]** include in squash.
 
----
+Both commands automatically fast-forward pull from remote before running (if a remote is configured). If the pull cannot fast-forward (e.g. diverged history), the command will abort so you can resolve it manually.
 
 ## Customization
-
-Want to tweak things? `yawn` is flexible!
 
 * **See all options:** Run `yawn --generate-config` to see a commented default configuration file (`.yawn.toml`).
 * **Common tweaks:**
   * `prompt`: Rewrite the instructions for the AI.
-  * `ask_stage`: Set to `false` to never stage automatically.
+  * `gemini_model`: Change the Gemini model (default: `gemini-flash-latest`; falls back to `gemini-flash-lite-latest` on failure).
+  * `request_timeout_seconds`: API request timeout in seconds (default: `15`).
+  * `auto_stage`: Set to `true` to always stage automatically.
   * `auto_push`: Set to `true` to always push after commit.
   * `push_command`: Change how `yawn` pushes (e.g., `git push --no-verify origin HEAD`).
   * `squash_auto_push`: Set to `true` to automatically force-push after `yawn squash`. Defaults to `false`.
-  * `wait_for_ssh_keys`: Set to `true` to make yawn wait until SSH keys are available via `ssh-add -l` before pushing. Useful for workflows involving tools like KeePassXC where the agent might not have keys immediately. Defaults to `false`.
+  * `wait_for_ssh_keys`: Set to `true` to make yawn wait until SSH keys are available via `ssh-add -l` before pushing (60-second timeout). Useful for workflows involving tools like KeePassXC where the agent might not have keys immediately. Defaults to `false`.
 
-Place your customizations in `./.yawn.toml` (project-specific) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
+Place your customizations in `./.yawn.toml` (project-specific, also searched in parent directories) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
 
 By default, `yawn` generates commit messages following the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification, which provides a standardized format for commit messages. This makes your commit history more readable and enables automated tools to parse your commit messages.
 
----
-
-## Contributing
-
-Found a bug or have an idea? Issues and Pull Requests are welcome on the [GitHub repository](https://github.com/Mayurifag/yawn)!
-
----
-
-## License
-
-This project is released into the public domain under The Unlicense. See the [LICENSE](LICENSE) file for details.
-
----
-
 ## Roadmap
 
-* Fix
+* Release 1.0.0 when it will be mature enough. homebrew, AUR, else?
 
-```
-Auto-pushing changes (enabled via user home config)...
-The authenticity of host '[git.nnnnn.cfd]:222 ([152.89.168.232]:222)' can't be established.
-ED25519 key fingerprint is: SHA256:OkSB/zuvLttvf9VShx9xIITF6l3gUjhay2zb85OAXRE
-This key is not known by any other names.
-```
+## CLI Flags (not meant to be used, but just in case)
 
-* Remove verbose mode - it is not needed and complicates code
-* Think of better config handling. Current solution is complex. Though I also need source of config, koanf seems missing this functionality. Plus better init file handling. I need to write custom provider for those. Maybe koanf rewrite with custom provider.
-* git pull before commit
-* git push force with lease confirmation if already there is commit in origin. [y/N]. Also show 3 latest commits from origin in such case with authors.
-* If commited manually something and accidently type `q` after — that means user wants to push, lets do it for him - on agreement (enter)
-* If pushed not in default branch - we may suggest to open PR for github / move to PR link (if we can get it from git somehow or if user have gh cli). Same for gitlab maybe..
-* Rewrite README.md
-* Make installation easier for all OSes (i.e. homebrew installation) and README.md better
-* Release 1.0.0 when it will be mature enough
-* Change release process makefile command
+| Flag                | Description                            |
+| ------------------- | -------------------------------------- |
+| `--api-key`         | Override Gemini API key                |
+| `--auto-stage`      | Stage all changes without prompting    |
+| `--auto-push`       | Push after commit without prompting    |
+| `--generate-config` | Print default config template and exit |
+| `--version`         | Print version and exit                 |

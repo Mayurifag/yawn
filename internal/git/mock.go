@@ -7,6 +7,7 @@ type MockGitClient struct {
 	MockGetDiff               func() (string, error)
 	MockStageChanges          func() error
 	MockCommit                func(message string) error
+	MockAmendCommit           func() error
 	MockPush                  func(command string) (string, error)
 	MockHasRemotes            func() (bool, error)
 	MockGetCurrentBranch      func() (string, error)
@@ -20,6 +21,11 @@ type MockGitClient struct {
 	MockResetSoft             func(commit string) error
 	MockStash                 func() error
 	MockStashPop              func() error
+	MockPull                  func() error
+	MockGetUnpushedCommits    func() ([]string, error)
+	MockGetRemoteOnlyCommits  func() ([]string, error)
+	MockGetDivergenceVsOrigin func(branch string) ([]string, []string, error)
+	MockGetStatusShort        func() (string, error)
 }
 
 func (m *MockGitClient) HasStagedChanges() (bool, error) {
@@ -60,6 +66,13 @@ func (m *MockGitClient) StageChanges() error {
 func (m *MockGitClient) Commit(message string) error {
 	if m.MockCommit != nil {
 		return m.MockCommit(message)
+	}
+	return nil
+}
+
+func (m *MockGitClient) AmendCommit() error {
+	if m.MockAmendCommit != nil {
+		return m.MockAmendCommit()
 	}
 	return nil
 }
@@ -153,4 +166,39 @@ func (m *MockGitClient) StashPop() error {
 		return m.MockStashPop()
 	}
 	return nil
+}
+
+func (m *MockGitClient) Pull() error {
+	if m.MockPull != nil {
+		return m.MockPull()
+	}
+	return nil
+}
+
+func (m *MockGitClient) GetUnpushedCommits() ([]string, error) {
+	if m.MockGetUnpushedCommits != nil {
+		return m.MockGetUnpushedCommits()
+	}
+	return nil, nil
+}
+
+func (m *MockGitClient) GetRemoteOnlyCommits() ([]string, error) {
+	if m.MockGetRemoteOnlyCommits != nil {
+		return m.MockGetRemoteOnlyCommits()
+	}
+	return nil, nil
+}
+
+func (m *MockGitClient) GetDivergenceVsOrigin(branch string) ([]string, []string, error) {
+	if m.MockGetDivergenceVsOrigin != nil {
+		return m.MockGetDivergenceVsOrigin(branch)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockGitClient) GetStatusShort() (string, error) {
+	if m.MockGetStatusShort != nil {
+		return m.MockGetStatusShort()
+	}
+	return "", nil
 }

@@ -13,6 +13,7 @@ import (
 const (
 	sshWaitTimeout  = 60 * time.Second
 	sshPollInterval = 500 * time.Millisecond
+	pushMaxRetries  = 3
 )
 
 func squashPushCommand(pushCommand string) string {
@@ -40,6 +41,7 @@ func (a *App) waitForSSHKeys() error {
 
 	ui.PrintInfo(fmt.Sprintf("Waiting for SSH keys to become available (enabled via %s)... Press CTRL+C to cancel.", a.Config.GetConfigSource("WaitForSSHKeys")))
 	spinner := ui.StartSpinner("Checking for SSH keys...")
+	defer ui.StopSpinner(spinner)
 
 	timeout := time.After(sshWaitTimeout)
 	ticker := time.NewTicker(sshPollInterval)
@@ -50,17 +52,14 @@ func (a *App) waitForSSHKeys() error {
 		case <-ticker.C:
 			keysAvailable, err = git.CheckSSHKeysAvailable()
 			if err != nil {
-				ui.StopSpinner(spinner)
 				ui.PrintError(fmt.Sprintf("checking SSH keys: %v", err))
 				return nil
 			}
 			if keysAvailable {
-				ui.StopSpinner(spinner)
 				ui.PrintSuccess("SSH keys detected.")
 				return nil
 			}
 		case <-timeout:
-			ui.StopSpinner(spinner)
 			return fmt.Errorf("timed out waiting for SSH keys after %s", sshWaitTimeout)
 		}
 	}
@@ -73,10 +72,25 @@ func (a *App) doPush(pushCmd, spinnerText, successMsg string) error {
 		}
 	}
 
-	spinner := ui.StartSpinner(spinnerText)
-	result, err := a.Pusher.ExecutePush(pushCmd)
-	ui.StopSpinner(spinner)
-
+	var result *git.PushResult
+	var err error
+	for attempt := range pushMaxRetries {
+		spinner := ui.StartSpinner(spinnerText)
+		result, err = a.Pusher.ExecutePush(pushCmd)
+		ui.StopSpinner(spinner)
+		if err == nil {
+			break
+		}
+		var gitErr *git.GitError
+		if errors.As(err, &gitErr) && strings.Contains(gitErr.Output, "non-fast-forward") {
+			return a.handleNonFastForwardPush(pushCmd, spinnerText, successMsg)
+		}
+		if attempt < pushMaxRetries-1 {
+			pause := time.Duration(attempt+1) * time.Second
+			ui.PrintInfo(fmt.Sprintf("Push failed, retrying in %s... (attempt %d/%d)", pause, attempt+1, pushMaxRetries))
+			time.Sleep(pause)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("failed to push: %w", err)
 	}
@@ -85,12 +99,7 @@ func (a *App) doPush(pushCmd, spinnerText, successMsg string) error {
 	}
 
 	ui.PrintSuccess(successMsg)
-	switch {
-	case result.PRLink != "":
-		ui.PrintRepoLink("View pull request:", result.PRLink)
-	case result.RepoLink != "":
-		ui.PrintRepoLink("View repository:", result.RepoLink)
-	}
+	printLinks(result.RepoLink, result.PRLink, result.SuggestPRLink)
 
 	return nil
 }
@@ -116,6 +125,68 @@ func (a *App) handlePushOperation() error {
 	return a.doPush(a.Config.PushCommand, "Pushing changes...", "Successfully pushed changes.")
 }
 
+func (a *App) handleUnpushedCommits() error {
+	commits, err := a.GitClient.GetUnpushedCommits()
+	if err != nil {
+		return err
+	}
+	if len(commits) == 0 {
+		branch, bErr := a.GitClient.GetCurrentBranch()
+		if bErr == nil {
+			localOnly, remoteOnly, _ := a.GitClient.GetDivergenceVsOrigin(branch)
+			if len(localOnly) > 0 {
+				return a.handleOriginDivergence(localOnly, remoteOnly)
+			}
+		}
+		ui.PrintInfo("No changes detected for commit.")
+		a.printSquashLinks()
+		return nil
+	}
+
+	ui.PrintInfo(fmt.Sprintf("%d unpushed commit(s) found:", len(commits)))
+	for _, c := range commits {
+		fmt.Printf("  %s\n", c)
+	}
+
+	if !a.Config.AutoPush {
+		if !ui.AskYesNo(fmt.Sprintf("Push %d commit(s)? (using: %s)", len(commits), a.Config.PushCommand), true) {
+			return nil
+		}
+	} else {
+		ui.PrintInfo(fmt.Sprintf("Auto-pushing %d commit(s) (enabled via %s)...", len(commits), a.Config.GetConfigSource("AutoPush")))
+	}
+
+	return a.doPush(a.Config.PushCommand, "Pushing...", "Successfully pushed.")
+}
+
+func (a *App) handleOriginDivergence(localOnly, remoteOnly []string) error {
+	ui.PrintForcePushPreview(remoteOnly, localOnly)
+	needsForce := len(remoteOnly) > 0
+	pushCmd := a.Config.PushCommand
+	if needsForce {
+		pushCmd = squashPushCommand(pushCmd)
+	}
+	if !a.Config.AutoPush {
+		if !ui.AskYesNo(fmt.Sprintf("Push %d commit(s)? (using: %s)", len(localOnly), pushCmd), !needsForce) {
+			return nil
+		}
+	} else {
+		ui.PrintInfo(fmt.Sprintf("Auto-pushing %d commit(s) (enabled via %s)...", len(localOnly), a.Config.GetConfigSource("AutoPush")))
+	}
+	return a.doPush(pushCmd, "Pushing...", "Successfully pushed.")
+}
+
+func (a *App) handleNonFastForwardPush(pushCmd, spinnerText, successMsg string) error {
+	localCommits, _ := a.GitClient.GetUnpushedCommits()
+	remoteCommits, _ := a.GitClient.GetRemoteOnlyCommits()
+	ui.PrintForcePushPreview(remoteCommits, localCommits)
+	forcePushCmd := squashPushCommand(pushCmd)
+	if !ui.AskYesNo(fmt.Sprintf("Overwrite remote? (using: %s)", forcePushCmd), false) {
+		return nil
+	}
+	return a.doPush(forcePushCmd, spinnerText, successMsg)
+}
+
 func (a *App) handleSquashPush() error {
 	hasRemotes, err := a.Pusher.HasRemotes()
 	if err != nil {
@@ -127,8 +198,12 @@ func (a *App) handleSquashPush() error {
 	}
 
 	pushCmd := squashPushCommand(a.Config.PushCommand)
+	localCommits, _ := a.GitClient.GetUnpushedCommits()
+	remoteCommits, _ := a.GitClient.GetRemoteOnlyCommits()
+	ui.PrintForcePushPreview(remoteCommits, localCommits)
 	if !a.Config.SquashAutoPush {
 		if !ui.AskYesNo(fmt.Sprintf("Force push? (using: %s)", pushCmd), false) {
+			a.printSquashLinks()
 			return nil
 		}
 	} else {

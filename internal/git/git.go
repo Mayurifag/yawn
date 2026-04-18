@@ -16,6 +16,7 @@ type GitClient interface {
 	GetDiff() (string, error)
 	StageChanges() error
 	Commit(message string) error
+	AmendCommit() error
 	Push(command string) (string, error)
 	HasRemotes() (bool, error)
 	GetCurrentBranch() (string, error)
@@ -29,6 +30,11 @@ type GitClient interface {
 	ResetSoft(commit string) error
 	Stash() error
 	StashPop() error
+	Pull() error
+	GetUnpushedCommits() ([]string, error)
+	GetRemoteOnlyCommits() ([]string, error)
+	GetDivergenceVsOrigin(branch string) (localOnly []string, remoteOnly []string, err error)
+	GetStatusShort() (string, error)
 }
 
 type ExecGitClient struct {
@@ -50,11 +56,10 @@ type GitError struct {
 	Command  string
 	Output   string
 	ExitCode int
-	Err      error
 }
 
 func (e *GitError) Error() string {
-	return fmt.Sprintf("git command '%s' failed: %s", e.Command, e.Err.Error())
+	return fmt.Sprintf("git command '%s' failed (exit code %d): %s", e.Command, e.ExitCode, strings.TrimSpace(e.Output))
 }
 
 func (c *ExecGitClient) runGitCommand(args ...string) (string, error) {
@@ -69,7 +74,6 @@ func (c *ExecGitClient) runGitCommand(args ...string) (string, error) {
 				Command:  fmt.Sprintf("git %s", strings.Join(args, " ")),
 				Output:   string(output),
 				ExitCode: exitErr.ExitCode(),
-				Err:      fmt.Errorf("exit code %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(output))),
 			}
 		}
 		return "", fmt.Errorf("failed to execute git command: %w", err)
@@ -183,13 +187,40 @@ func (c *ExecGitClient) Commit(message string) error {
 	return nil
 }
 
+func (c *ExecGitClient) AmendCommit() error {
+	_, err := c.runGitCommand("commit", "--amend", "--no-edit")
+	if err != nil {
+		return fmt.Errorf("failed to amend commit: %w", err)
+	}
+	return nil
+}
+
 func (c *ExecGitClient) Push(command string) (string, error) {
 	parts := strings.Fields(command)
-	if len(parts) < 2 || parts[0] != "git" {
+	if len(parts) < 2 || parts[0] != "git" || parts[1] != "push" {
 		return "", fmt.Errorf("invalid push command format: expected 'git push ...', got '%s'", command)
 	}
-	output, err := c.runGitCommand(parts[1:]...)
+
+	cmd := exec.Command("git", parts[1:]...)
+	cmd.Dir = c.RepoPath
+	cmd.Env = append(os.Environ(), "GIT_PAGER=cat")
+	cmd.Stdin = os.Stdin
+
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+
+	err := cmd.Run()
+	output := strings.TrimSpace(buf.String())
+
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return "", &GitError{
+				Command:  fmt.Sprintf("git %s", strings.Join(parts[1:], " ")),
+				Output:   output,
+				ExitCode: exitErr.ExitCode(),
+			}
+		}
 		return "", fmt.Errorf("failed to push changes: %w", err)
 	}
 	return output, nil
@@ -256,4 +287,64 @@ func (c *ExecGitClient) GetDiffNumStatSummary() (additions int, deletions int, e
 	}
 	additions, deletions = sumNumstatLines(output)
 	return
+}
+
+func (c *ExecGitClient) Pull() error {
+	if _, err := c.runGitCommand("rev-parse", "--abbrev-ref", "@{u}"); err != nil {
+		return nil
+	}
+	_, err := c.runGitCommand("pull", "--ff-only")
+	if err != nil {
+		return fmt.Errorf("failed to pull: %w", err)
+	}
+	return nil
+}
+
+func (c *ExecGitClient) getCommitList(rangeArg string) ([]string, error) {
+	output, err := c.runGitCommand("log", rangeArg, "--format=%ad - %an - %s", "--date=short")
+	if err != nil {
+		return nil, err
+	}
+	if output == "" {
+		return nil, nil
+	}
+	var commits []string
+	for _, line := range strings.Split(output, "\n") {
+		if line != "" {
+			commits = append(commits, line)
+		}
+	}
+	return commits, nil
+}
+
+func (c *ExecGitClient) GetUnpushedCommits() ([]string, error) {
+	return c.getCommitList("@{u}..HEAD")
+}
+
+func (c *ExecGitClient) GetRemoteOnlyCommits() ([]string, error) {
+	return c.getCommitList("HEAD..@{u}")
+}
+
+func (c *ExecGitClient) GetStatusShort() (string, error) {
+	output, err := c.runGitCommand("status", "--short")
+	if err != nil {
+		return "", fmt.Errorf("failed to get status: %w", err)
+	}
+	return output, nil
+}
+
+func (c *ExecGitClient) GetDivergenceVsOrigin(branch string) ([]string, []string, error) {
+	originRef := "origin/" + branch
+	if _, err := c.runGitCommand("rev-parse", "--verify", originRef); err != nil {
+		return nil, nil, nil
+	}
+	local, err := c.getCommitList(originRef + "..HEAD")
+	if err != nil {
+		return nil, nil, err
+	}
+	remote, err := c.getCommitList("HEAD.." + originRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	return local, remote, nil
 }

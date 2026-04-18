@@ -76,10 +76,28 @@ func ParseRemoteURL(remoteURL string) (*RemoteInfo, error) {
 	return parseParsedURL(remoteURL)
 }
 
+var defaultBranches = map[string]bool{
+	"main":   true,
+	"master": true,
+	"dev":    true,
+}
+
+func GeneratePRURL(host, owner, repo, branch string) string {
+	if host == "" || owner == "" || repo == "" || branch == "" || defaultBranches[branch] {
+		return ""
+	}
+	if strings.Contains(host, "gitlab") {
+		return fmt.Sprintf("https://%s/%s/%s/-/merge_requests/new?merge_request%%5Bsource_branch%%5D=%s",
+			host, owner, repo, url.QueryEscape(branch))
+	}
+	return fmt.Sprintf("https://%s/%s/%s/compare/%s?expand=1", host, owner, repo, branch)
+}
+
 type PushResult struct {
-	Success  bool
-	PRLink   string
-	RepoLink string
+	Success       bool
+	PRLink        string
+	SuggestPRLink string
+	RepoLink      string
 }
 
 type PushProvider interface {
@@ -100,7 +118,7 @@ func (p *Pusher) ExecutePush(command string) (*PushResult, error) {
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("push command is empty")
 	}
-	if len(parts) < 2 || parts[0] != "git" {
+	if len(parts) < 2 || parts[0] != "git" || parts[1] != "push" {
 		return nil, fmt.Errorf("invalid push command format: expected 'git push ...', got '%s'", command)
 	}
 
@@ -117,6 +135,11 @@ func (p *Pusher) ExecutePush(command string) (*PushResult, error) {
 	if remoteURL, err := p.gitClient.GetRemoteURL(""); err == nil {
 		if remoteInfo, err := ParseRemoteURL(remoteURL); err == nil {
 			result.RepoLink = GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo)
+			if result.PRLink == "" {
+				if branch, err := p.gitClient.GetCurrentBranch(); err == nil {
+					result.SuggestPRLink = GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+				}
+			}
 		}
 	}
 
