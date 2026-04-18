@@ -23,7 +23,8 @@ But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customiza
 * Override config per project? ✅
 
 It **really** adapts to your workflow, that's why I made it and why it is better
-than any other Git commit message generator I've tried.
+than any other Git commit message generator I've tried. It is also
+cross-platform, amd64/arm64 supported and single binary.
 
 ## Installation
 
@@ -34,7 +35,7 @@ mise use -g github:Mayurifag/yawn@latest # if you have mise installed
 # or place binary from Releases in one of your `$PATH` folders, make it executable.
 ~~~
 
-**Optional:** Generate global config to customize defaults:
+Generate global config. Minimal change is to add Google AI Studio API key there:
 
 ~~~sh
 yawn --generate-config > ~/.config/yawn/config.toml

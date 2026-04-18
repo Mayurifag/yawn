@@ -43,9 +43,10 @@ install: ci
 # Install latest release via mise
 install-release:
 	@echo "==> Installing latest release of yawn via mise..."
+	mise cache clear
 	mise use -g github:Mayurifag/yawn@latest
 	mise reshim
-	"$(MAKE)" uninstall
+	@"$(MAKE)" --no-print-directory uninstall
 
 # Uninstall the application from GOBIN
 uninstall:
