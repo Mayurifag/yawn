@@ -137,7 +137,10 @@ func (p *Pusher) ExecutePush(command string) (*PushResult, error) {
 			result.RepoLink = GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo)
 			if result.PRLink == "" {
 				if branch, err := p.gitClient.GetCurrentBranch(); err == nil {
-					result.SuggestPRLink = GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+					defaultBranch, _ := p.gitClient.GetDefaultBranch()
+					if branch != defaultBranch {
+						result.SuggestPRLink = GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+					}
 				}
 			}
 		}

@@ -2,12 +2,32 @@ package gemini
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/genai"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func IsTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == 503 || apiErr.Code == 504
+	}
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if c := status.Code(e); c == codes.Unavailable || c == codes.DeadlineExceeded {
+			return true
+		}
+	}
+	return false
+}
 
 const FallbackModel = "gemini-flash-lite-latest"
 

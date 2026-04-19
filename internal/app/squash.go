@@ -46,7 +46,8 @@ func (a *App) squashSetup() (base string, count int, err error) {
 	if err != nil {
 		return
 	}
-	if defaultBranchNames[branch] {
+	defaultBranch, _ := a.GitClient.GetDefaultBranch()
+	if defaultBranchNames[branch] || (defaultBranch != "" && branch == defaultBranch) {
 		err = fmt.Errorf("squash: cannot squash on default branch %q", branch)
 		return
 	}
@@ -70,7 +71,10 @@ func (a *App) printSquashLinks() {
 	repoLink := git.GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo)
 	var suggestPRLink string
 	if branch, err := a.GitClient.GetCurrentBranch(); err == nil {
-		suggestPRLink = git.GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+		defaultBranch, _ := a.GitClient.GetDefaultBranch()
+		if branch != defaultBranch {
+			suggestPRLink = git.GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+		}
 	}
 	printLinks(repoLink, "", suggestPRLink)
 }

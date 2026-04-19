@@ -35,6 +35,7 @@ type GitClient interface {
 	GetRemoteOnlyCommits() ([]string, error)
 	GetDivergenceVsOrigin(branch string) (localOnly []string, remoteOnly []string, err error)
 	GetStatusShort() (string, error)
+	GetDefaultBranch() (string, error)
 }
 
 type ExecGitClient struct {
@@ -331,6 +332,15 @@ func (c *ExecGitClient) GetStatusShort() (string, error) {
 		return "", fmt.Errorf("failed to get status: %w", err)
 	}
 	return output, nil
+}
+
+func (c *ExecGitClient) GetDefaultBranch() (string, error) {
+	output, err := c.runGitCommand("symbolic-ref", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Split(output, "/")
+	return parts[len(parts)-1], nil
 }
 
 func (c *ExecGitClient) GetDivergenceVsOrigin(branch string) ([]string, []string, error) {

@@ -26,6 +26,7 @@ type MockGitClient struct {
 	MockGetRemoteOnlyCommits  func() ([]string, error)
 	MockGetDivergenceVsOrigin func(branch string) ([]string, []string, error)
 	MockGetStatusShort        func() (string, error)
+	MockGetDefaultBranch      func() (string, error)
 }
 
 func (m *MockGitClient) HasStagedChanges() (bool, error) {
@@ -201,4 +202,11 @@ func (m *MockGitClient) GetStatusShort() (string, error) {
 		return m.MockGetStatusShort()
 	}
 	return "", nil
+}
+
+func (m *MockGitClient) GetDefaultBranch() (string, error) {
+	if m.MockGetDefaultBranch != nil {
+		return m.MockGetDefaultBranch()
+	}
+	return "main", nil
 }

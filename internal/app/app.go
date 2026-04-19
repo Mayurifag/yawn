@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Mayurifag/yawn/internal/config"
 	"github.com/Mayurifag/yawn/internal/gemini"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/Mayurifag/yawn/internal/ui"
 )
+
+const maxCommitGenRetries = 3
 
 type App struct {
 	Config    config.Config
@@ -138,7 +141,7 @@ func (a *App) gatherCommitInfo() (branchName string, additions int, deletions in
 	return
 }
 
-func (a *App) generateCommitMessageAndStream(ctx context.Context, geminiClient gemini.Client, systemPrompt, userContent string) (string, error) {
+func (a *App) doGenerateStream(ctx context.Context, geminiClient gemini.Client, systemPrompt, userContent string) (string, error) {
 	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
 	defer cancel()
 
@@ -162,8 +165,25 @@ func (a *App) generateCommitMessageAndStream(ctx context.Context, geminiClient g
 	if message == "" {
 		return "", fmt.Errorf("empty commit message received from Gemini")
 	}
-
 	return message, nil
+}
+
+func (a *App) generateCommitMessageAndStream(ctx context.Context, geminiClient gemini.Client, systemPrompt, userContent string) (string, error) {
+	var lastErr error
+	for attempt := range maxCommitGenRetries {
+		msg, err := a.doGenerateStream(ctx, geminiClient, systemPrompt, userContent)
+		if err == nil {
+			return msg, nil
+		}
+		lastErr = err
+		if !gemini.IsTransientError(err) || attempt == maxCommitGenRetries-1 || ctx.Err() != nil {
+			return "", err
+		}
+		pause := time.Duration(attempt+1) * time.Second
+		ui.PrintInfo(fmt.Sprintf("Gemini API unavailable, retrying in %s... (attempt %d/%d)", pause, attempt+1, maxCommitGenRetries))
+		time.Sleep(pause)
+	}
+	return "", lastErr
 }
 
 func printLinks(repoLink, prLink, suggestPRLink string) {

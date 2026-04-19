@@ -6,7 +6,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/genai"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type MockGeminiClient struct {
@@ -76,6 +79,31 @@ func TestGetTextFromResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := getTextFromResponse(tt.resp)
 			assert.Equal(t, tt.expected, msg)
+		})
+	}
+}
+
+func TestIsTransientError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{"nil", nil, false},
+		{"plain error", fmt.Errorf("something failed"), false},
+		{"context deadline", context.DeadlineExceeded, false},
+		{"grpc unavailable", status.Error(codes.Unavailable, "high demand"), true},
+		{"grpc deadline exceeded", status.Error(codes.DeadlineExceeded, "deadline expired"), true},
+		{"grpc wrapped unavailable", fmt.Errorf("stream: %w", status.Error(codes.Unavailable, "high demand")), true},
+		{"grpc wrapped deadline exceeded", fmt.Errorf("stream: %w", status.Error(codes.DeadlineExceeded, "deadline expired")), true},
+		{"googleapi 503", &googleapi.Error{Code: 503}, true},
+		{"googleapi 504", &googleapi.Error{Code: 504}, true},
+		{"googleapi 500", &googleapi.Error{Code: 500}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsTransientError(tt.err))
 		})
 	}
 }
