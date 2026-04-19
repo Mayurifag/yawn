@@ -128,7 +128,9 @@ func (a *App) handlePushOperation() error {
 func (a *App) handleUnpushedCommits() error {
 	commits, err := a.GitClient.GetUnpushedCommits()
 	if err != nil {
-		return err
+		ui.PrintInfo("No changes detected for commit.")
+		a.printSquashLinks()
+		return nil
 	}
 	if len(commits) == 0 {
 		branch, bErr := a.GitClient.GetCurrentBranch()
