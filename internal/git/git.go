@@ -293,7 +293,7 @@ func (c *ExecGitClient) Pull() error {
 	if _, err := c.runGitCommand("rev-parse", "--abbrev-ref", "@{u}"); err != nil {
 		return nil
 	}
-	_, err := c.runGitCommand("pull", "--ff-only")
+	_, err := c.runGitCommand("pull", "--no-rebase", "--ff-only")
 	if err != nil {
 		return fmt.Errorf("failed to pull: %w", err)
 	}

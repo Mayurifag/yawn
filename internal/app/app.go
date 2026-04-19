@@ -30,7 +30,7 @@ func (a *App) autoPull() error {
 	if err != nil || !hasRemotes {
 		return nil
 	}
-	ui.PrintInfo("Pulling latest changes...")
+	ui.PrintInfo("Pulling latest repository changes...")
 	return a.GitClient.Pull()
 }
 
