@@ -14,6 +14,8 @@ import (
 
 const maxCommitGenRetries = 3
 
+var errRequestTimeout = errors.New("request timeout")
+
 type App struct {
 	Config    config.Config
 	GitClient git.GitClient
@@ -151,7 +153,7 @@ func (a *App) doGenerateStream(ctx context.Context, geminiClient gemini.Client, 
 
 	if err != nil {
 		if errors.Is(ctxTimeout.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("commit message generation timed out after %s", a.Config.GetRequestTimeout())
+			return "", fmt.Errorf("commit message generation timed out after %s: %w", a.Config.GetRequestTimeout(), errRequestTimeout)
 		}
 		return "", fmt.Errorf("failed to start commit message generation: %w", err)
 	}
@@ -176,11 +178,12 @@ func (a *App) generateCommitMessageAndStream(ctx context.Context, geminiClient g
 			return msg, nil
 		}
 		lastErr = err
-		if !gemini.IsTransientError(err) || attempt == maxCommitGenRetries-1 || ctx.Err() != nil {
+		isRetryable := gemini.IsTransientError(err) || errors.Is(err, errRequestTimeout)
+		if !isRetryable || attempt == maxCommitGenRetries-1 || ctx.Err() != nil {
 			return "", err
 		}
 		pause := time.Duration(attempt+1) * time.Second
-		ui.PrintInfo(fmt.Sprintf("Gemini API unavailable, retrying in %s... (attempt %d/%d)", pause, attempt+1, maxCommitGenRetries))
+		ui.PrintInfo(fmt.Sprintf("Retrying in %s... (attempt %d/%d)", pause, attempt+1, maxCommitGenRetries))
 		time.Sleep(pause)
 	}
 	return "", lastErr
