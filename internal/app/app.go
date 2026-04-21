@@ -35,7 +35,7 @@ func (a *App) autoPull() error {
 	if err != nil || !hasRemotes {
 		return nil
 	}
-	ui.PrintInfo("Pulling latest repository changes...")
+	ui.PrintInfo("Pulling remote branch commits (to be sure the commit will be on actual codebase)...")
 	return a.GitClient.Pull()
 }
 

@@ -45,13 +45,13 @@ install-release:
 	@echo "==> Installing latest release of yawn via mise..."
 	mise cache clear
 	mise use -g github:Mayurifag/yawn@latest
-	mise reshim
 	@"$(MAKE)" --no-print-directory uninstall
 
 # Uninstall the application from GOBIN
 uninstall:
 	@echo "==> Uninstalling yawn-debug from $(GOBIN)..."
 	@rm -f "$(GOBIN)/yawn-debug" "$(GOBIN)/yawn-debug.exe"
+	mise reshim
 
 # Clean build artifacts
 clean:
