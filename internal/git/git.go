@@ -294,9 +294,11 @@ func (c *ExecGitClient) Pull() error {
 	if _, err := c.runGitCommand("rev-parse", "--abbrev-ref", "@{u}"); err != nil {
 		return nil
 	}
-	_, err := c.runGitCommand("pull", "--no-rebase", "--ff-only")
-	if err != nil {
-		return fmt.Errorf("failed to pull: %w", err)
+	if _, err := c.runGitCommand("fetch"); err != nil {
+		return fmt.Errorf("failed to fetch: %w", err)
+	}
+	if _, err := c.runGitCommand("merge", "--ff-only", "@{u}"); err != nil {
+		return fmt.Errorf("failed to fast-forward: %w", err)
 	}
 	return nil
 }
