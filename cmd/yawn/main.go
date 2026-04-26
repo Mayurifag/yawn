@@ -88,6 +88,42 @@ variables (YAWN_*)`,
 	},
 }
 
+var forcePushCmd = &cobra.Command{
+	Use:   "force-push",
+	Short: "Force-push current branch with --force-with-lease and print repo/PR links",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		projectPath, err := os.Getwd()
+		if err != nil {
+			ui.PrintError(fmt.Sprintf("Error getting current directory: %v", err))
+			return err
+		}
+
+		flags := config.CLIFlags{}
+		if cmd.Flags().Changed("auto-push") {
+			flags.AutoPush = &flagAutoPush
+		}
+
+		cfg, err := config.LoadConfig(projectPath, flags)
+		if err != nil {
+			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
+			return err
+		}
+
+		gitClient, err := git.NewExecGitClient()
+		if err != nil {
+			ui.PrintError(fmt.Sprintf("Failed to create git client: %v", err))
+			return err
+		}
+
+		yawnApp := app.NewApp(cfg, gitClient)
+		if err := yawnApp.RunForcePush(); err != nil {
+			ui.PrintError(err.Error())
+			os.Exit(1)
+		}
+		return nil
+	},
+}
+
 var squashCmd = &cobra.Command{
 	Use:   "squash",
 	Short: "Squash all commits on current branch into one AI-generated commit",
@@ -151,4 +187,7 @@ func init() {
 
 	rootCmd.SetVersionTemplate(`{{printf "%s version %s\n" .Name .Version}}`)
 	rootCmd.AddCommand(squashCmd)
+
+	forcePushCmd.Flags().BoolVar(&flagAutoPush, "auto-push", false, "Force-push without confirmation prompt")
+	rootCmd.AddCommand(forcePushCmd)
 }

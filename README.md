@@ -51,8 +51,6 @@ adaptations and your workflow will be changed forever. 😉 Same goes for
 
 ## Commands
 
-Both commands automatically fast-forward pull from remote before running (if a remote is configured). If the pull cannot fast-forward (e.g. diverged history), the command will abort so you can resolve it manually.
-
 ### `yawn` (default)
 
 Stages, commits with AI-generated message, and pushes.
@@ -66,6 +64,16 @@ After a successful push, `yawn` prints a PR creation link (GitHub compare URL or
 Squashes all commits on the current branch (since it diverged from `main`/`master`/`dev`) into a single AI-generated commit.
 
 If you have uncommitted changes when squashing, `yawn` prompts: **[Enter]** cancel, **[s]** stash & restore after, **[a]** include in squash.
+
+### `yawn force-push`
+
+Replacement for `git push --force-with-lease` that also prints the repository link and a pull request link (or PR creation link on a non-default branch). Handy to alias (e.g. `alias gpf="yawn force-push"`, like `git push --force`, but better).
+
+Shows a divergence preview and asks for confirmation. Pass `--auto-push` to skip the prompt.
+
+### Note on command
+
+Commands (except `force-push`) automatically fast-forward pull from remote before running (if a remote is configured). If the pull cannot fast-forward (e.g. diverged history), the command will abort so you can resolve it manually.
 
 ## Customization
 
@@ -87,7 +95,6 @@ By default, `yawn` generates commit messages following the [Conventional Commits
 ## Roadmap
 
 * Release 1.0.0 when it will be mature enough. homebrew, AUR, else?
-* git push force with lease cmd replacement which will include repo/PR link for aliasing
 
 ## CLI Flags (not meant to be used, but just in case)
 
