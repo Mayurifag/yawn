@@ -94,6 +94,9 @@ By default, `yawn` generates commit messages following the [Conventional Commits
 
 ## Roadmap
 
+* Fix yawn not working with HTTPS -> ask user to convert onto SSH if that happens. Rare, but why not.
+* Timeout on pulling changes - may be no internet or github not answering - retries
+* Timeout git push - github might not answering - retries
 * Release 1.0.0 when it will be mature enough. homebrew, AUR, else?
 
 ## CLI Flags (not meant to be used, but just in case)
