@@ -13,6 +13,16 @@ func IsHTTPSRemoteURL(remoteURL string) bool {
 	return strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://")
 }
 
+var knownSSHHosts = map[string]bool{
+	"github.com":    true,
+	"gitlab.com":    true,
+	"bitbucket.org": true,
+}
+
+func IsKnownSSHHost(host string) bool {
+	return knownSSHHosts[strings.ToLower(host)]
+}
+
 func ConvertHTTPSToSSH(httpsURL string) (string, error) {
 	if !IsHTTPSRemoteURL(httpsURL) {
 		return "", ErrNotHTTPSRemote

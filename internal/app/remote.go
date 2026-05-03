@@ -31,6 +31,10 @@ func (a *App) ensureSSHRemote() error {
 	ui.PrintInfo(fmt.Sprintf("  current: %s", currentURL))
 	ui.PrintInfo(fmt.Sprintf("  proposed: %s", sshURL))
 
+	if info, perr := git.ParseRemoteURL(currentURL); perr == nil && !git.IsKnownSSHHost(info.Host) {
+		ui.PrintInfo(fmt.Sprintf("  note: %q is a custom host. If its SSH server uses a non-default port, run `git remote set-url origin ssh://git@%s:PORT/%s/%s.git` after this conversion.", info.Host, info.Host, info.Owner, info.Repo))
+	}
+
 	if !ui.AskYesNo("Convert remote 'origin' to SSH now?", true) {
 		return errors.New("aborted: HTTPS remote not allowed; convert to SSH and retry")
 	}
