@@ -152,7 +152,7 @@ func (a *App) handleMultiCommitSquash(ctx context.Context, base string, count in
 }
 
 func (a *App) RunSquash(ctx context.Context) error {
-	if err := a.autoPull(); err != nil {
+	if err := a.ensureSSHRemote(); err != nil {
 		return err
 	}
 

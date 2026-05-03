@@ -13,7 +13,6 @@ import (
 const (
 	sshWaitTimeout  = 60 * time.Second
 	sshPollInterval = 500 * time.Millisecond
-	pushMaxRetries  = 3
 )
 
 func squashPushCommand(pushCommand string) string {
@@ -74,7 +73,7 @@ func (a *App) doPush(pushCmd, spinnerText, successMsg string) error {
 
 	var result *git.PushResult
 	var err error
-	for attempt := range pushMaxRetries {
+	for attempt := range networkMaxRetries {
 		spinner := ui.StartSpinner(spinnerText)
 		result, err = a.Pusher.ExecutePush(pushCmd)
 		ui.StopSpinner(spinner)
@@ -85,9 +84,12 @@ func (a *App) doPush(pushCmd, spinnerText, successMsg string) error {
 		if errors.As(err, &gitErr) && strings.Contains(gitErr.Output, "non-fast-forward") {
 			return a.handleNonFastForwardPush(pushCmd, spinnerText, successMsg)
 		}
-		if attempt < pushMaxRetries-1 {
-			pause := time.Duration(attempt+1) * time.Second
-			ui.PrintInfo(fmt.Sprintf("Push failed, retrying in %s... (attempt %d/%d)", pause, attempt+1, pushMaxRetries))
+		if !isRetryableNetworkErr(err) {
+			break
+		}
+		if attempt < networkMaxRetries-1 {
+			pause := time.Duration(1<<attempt) * time.Second
+			ui.PrintInfo(fmt.Sprintf("Push failed (%v), retrying in %s... (attempt %d/%d)", err, pause, attempt+1, networkMaxRetries))
 			time.Sleep(pause)
 		}
 	}

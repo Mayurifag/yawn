@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Mayurifag/yawn/internal/config"
@@ -30,13 +31,32 @@ func NewApp(cfg config.Config, gitClient git.GitClient) *App {
 	}
 }
 
-func (a *App) autoPull() error {
-	hasRemotes, err := a.GitClient.HasRemotes()
-	if err != nil || !hasRemotes {
-		return nil
+const networkMaxRetries = 3
+
+func isRetryableNetworkErr(err error) bool {
+	if err == nil {
+		return false
 	}
-	ui.PrintInfo("Pulling remote branch commits (to be sure the commit will be on actual codebase)...")
-	return a.GitClient.Pull()
+	if errors.Is(err, git.ErrNetworkTimeout) {
+		return true
+	}
+	var gitErr *git.GitError
+	if errors.As(err, &gitErr) {
+		if git.IsAuthError(gitErr.Output) {
+			return false
+		}
+		return !containsAny(gitErr.Output, "non-fast-forward", "rejected", "fatal: refusing")
+	}
+	return false
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) ensureAPIKey() error {
@@ -201,7 +221,7 @@ func printLinks(repoLink, prLink, suggestPRLink string) {
 }
 
 func (a *App) Run(ctx context.Context) error {
-	if err := a.autoPull(); err != nil {
+	if err := a.ensureSSHRemote(); err != nil {
 		return err
 	}
 	hasChanges, err := a.setupAndCheckPrerequisites()

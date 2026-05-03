@@ -7,6 +7,9 @@ import (
 )
 
 func (a *App) RunForcePush() error {
+	if err := a.ensureSSHRemote(); err != nil {
+		return err
+	}
 	hasRemotes, err := a.Pusher.HasRemotes()
 	if err != nil {
 		return fmt.Errorf("failed to check for remote repositories: %w", err)

@@ -18,7 +18,8 @@ But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customiza
 * Squash the branch onto single commit fast? ✅
 * Have a link to repository and MR? ✅
 * Need to push skipping Git hooks (`git push --no-verify`)? You may even force push, if you want. ✅
-* Push failures are retried up to 3 times with exponential backoff before giving up. ✅
+* Push gets a per-attempt timeout and 3 retries with exponential backoff. ✅
+* HTTPS remotes are detected and you're prompted to convert them to SSH. ✅
 * Override defaults using environment variables or additional parameters? ✅
 * Override config per project? ✅
 
@@ -71,10 +72,6 @@ Replacement for `git push --force-with-lease` that also prints the repository li
 
 Shows a divergence preview and asks for confirmation. Pass `--auto-push` to skip the prompt.
 
-### Note on command
-
-Commands (except `force-push`) automatically fast-forward pull from remote before running (if a remote is configured). If the pull cannot fast-forward (e.g. diverged history), the command will abort so you can resolve it manually.
-
 ## Customization
 
 * **See all options:** Run `yawn --generate-config` to see a commented default configuration file (`.yawn.toml`).
@@ -94,9 +91,6 @@ By default, `yawn` generates commit messages following the [Conventional Commits
 
 ## Roadmap
 
-* Fix yawn not working with HTTPS -> ask user to convert onto SSH if that happens. Rare, but why not.
-* Timeout on pulling changes - may be no internet or github not answering - retries
-* Timeout git push - github might not answering - retries
 * Release 1.0.0 when it will be mature enough. homebrew, AUR, else?
 
 ## CLI Flags (not meant to be used, but just in case)

@@ -12,6 +12,7 @@ type MockGitClient struct {
 	MockHasRemotes            func() (bool, error)
 	MockGetCurrentBranch      func() (string, error)
 	MockGetRemoteURL          func(remoteName string) (string, error)
+	MockSetRemoteURL          func(remote, newURL string) error
 	MockGetLastCommitHash     func() (string, error)
 	MockGetDiffNumStatSummary func() (additions int, deletions int, err error)
 	MockFindBranchBase        func(branch string) (string, error)
@@ -21,7 +22,6 @@ type MockGitClient struct {
 	MockResetSoft             func(commit string) error
 	MockStash                 func() error
 	MockStashPop              func() error
-	MockPull                  func() error
 	MockGetUnpushedCommits    func() ([]string, error)
 	MockGetRemoteOnlyCommits  func() ([]string, error)
 	MockGetDivergenceVsOrigin func(branch string) ([]string, []string, error)
@@ -106,6 +106,13 @@ func (m *MockGitClient) GetRemoteURL(remoteName string) (string, error) {
 	return "", nil
 }
 
+func (m *MockGitClient) SetRemoteURL(remote, newURL string) error {
+	if m.MockSetRemoteURL != nil {
+		return m.MockSetRemoteURL(remote, newURL)
+	}
+	return nil
+}
+
 func (m *MockGitClient) GetLastCommitHash() (string, error) {
 	if m.MockGetLastCommitHash != nil {
 		return m.MockGetLastCommitHash()
@@ -165,13 +172,6 @@ func (m *MockGitClient) Stash() error {
 func (m *MockGitClient) StashPop() error {
 	if m.MockStashPop != nil {
 		return m.MockStashPop()
-	}
-	return nil
-}
-
-func (m *MockGitClient) Pull() error {
-	if m.MockPull != nil {
-		return m.MockPull()
 	}
 	return nil
 }

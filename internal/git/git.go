@@ -2,12 +2,19 @@ package git
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const NetworkPushTimeout = 60 * time.Second
+
+var ErrNetworkTimeout = errors.New("git network operation timed out")
 
 type GitClient interface {
 	HasStagedChanges() (bool, error)
@@ -21,6 +28,7 @@ type GitClient interface {
 	HasRemotes() (bool, error)
 	GetCurrentBranch() (string, error)
 	GetRemoteURL(remote string) (string, error)
+	SetRemoteURL(remote, newURL string) error
 	GetLastCommitHash() (string, error)
 	GetDiffNumStatSummary() (additions int, deletions int, err error)
 	FindBranchBase(branch string) (string, error)
@@ -30,7 +38,6 @@ type GitClient interface {
 	ResetSoft(commit string) error
 	Stash() error
 	StashPop() error
-	Pull() error
 	GetUnpushedCommits() ([]string, error)
 	GetRemoteOnlyCommits() ([]string, error)
 	GetDivergenceVsOrigin(branch string) (localOnly []string, remoteOnly []string, err error)
@@ -64,12 +71,19 @@ func (e *GitError) Error() string {
 }
 
 func (c *ExecGitClient) runGitCommand(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	return c.runGitCommandContext(context.Background(), args...)
+}
+
+func (c *ExecGitClient) runGitCommandContext(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = c.RepoPath
 	cmd.Env = append(os.Environ(), "GIT_PAGER=cat")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("%w: git %s", ErrNetworkTimeout, strings.Join(args, " "))
+		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return "", &GitError{
 				Command:  fmt.Sprintf("git %s", strings.Join(args, " ")),
@@ -202,7 +216,10 @@ func (c *ExecGitClient) Push(command string) (string, error) {
 		return "", fmt.Errorf("invalid push command format: expected 'git push ...', got '%s'", command)
 	}
 
-	cmd := exec.Command("git", parts[1:]...)
+	ctx, cancel := context.WithTimeout(context.Background(), NetworkPushTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", parts[1:]...)
 	cmd.Dir = c.RepoPath
 	cmd.Env = append(os.Environ(), "GIT_PAGER=cat")
 	cmd.Stdin = os.Stdin
@@ -215,6 +232,9 @@ func (c *ExecGitClient) Push(command string) (string, error) {
 	output := strings.TrimSpace(buf.String())
 
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return output, fmt.Errorf("%w: git %s", ErrNetworkTimeout, strings.Join(parts[1:], " "))
+		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return "", &GitError{
 				Command:  fmt.Sprintf("git %s", strings.Join(parts[1:], " ")),
@@ -254,6 +274,16 @@ func (c *ExecGitClient) GetRemoteURL(remote string) (string, error) {
 	return output, nil
 }
 
+func (c *ExecGitClient) SetRemoteURL(remote, newURL string) error {
+	if remote == "" {
+		remote = "origin"
+	}
+	if _, err := c.runGitCommand("remote", "set-url", remote, newURL); err != nil {
+		return fmt.Errorf("failed to set remote URL: %w", err)
+	}
+	return nil
+}
+
 func (c *ExecGitClient) GetLastCommitHash() (string, error) {
 	output, err := c.runGitCommand("rev-parse", "HEAD")
 	if err != nil {
@@ -288,19 +318,6 @@ func (c *ExecGitClient) GetDiffNumStatSummary() (additions int, deletions int, e
 	}
 	additions, deletions = sumNumstatLines(output)
 	return
-}
-
-func (c *ExecGitClient) Pull() error {
-	if _, err := c.runGitCommand("rev-parse", "--abbrev-ref", "@{u}"); err != nil {
-		return nil
-	}
-	if _, err := c.runGitCommand("fetch"); err != nil {
-		return fmt.Errorf("failed to fetch: %w", err)
-	}
-	if _, err := c.runGitCommand("merge", "--ff-only", "@{u}"); err != nil {
-		return fmt.Errorf("failed to fast-forward: %w", err)
-	}
-	return nil
 }
 
 func (c *ExecGitClient) getCommitList(rangeArg string) ([]string, error) {
