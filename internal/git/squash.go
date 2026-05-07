@@ -35,27 +35,15 @@ func (c *ExecGitClient) GetCommitCountRange(base string) (int, error) {
 }
 
 func (c *ExecGitClient) GetDiffRange(base string) (string, error) {
-	numstatOutput, err := c.runGitCommand("diff", "--numstat", "--no-color", base, "HEAD")
+	numstatOutput, err := c.runGitCommand("diff", "--numstat", "-z", "--no-renames", "--no-color", base, "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff stats: %w", err)
 	}
-	files := parseFilesFromNumstat(numstatOutput)
-	if len(files) == 0 {
-		return "", nil
-	}
-	args := append([]string{"diff", "--no-color", base, "HEAD", "--"}, files...)
-	output, err := c.runGitCommand(args...)
-	if err != nil {
-		if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
-			return gitErr.Output, nil
-		}
-		return "", fmt.Errorf("failed to get diff range: %w", err)
-	}
-	return output, nil
+	return c.buildFilteredDiff(numstatOutput, []string{"diff", "--no-color", base, "HEAD"}), nil
 }
 
 func (c *ExecGitClient) GetDiffNumStatRange(base string) (int, int, error) {
-	output, err := c.runGitCommand("diff", "--numstat", "--no-color", base, "HEAD")
+	output, err := c.runGitCommand("diff", "--numstat", "-z", "--no-renames", "--no-color", base, "HEAD")
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get diff stats: %w", err)
 	}
