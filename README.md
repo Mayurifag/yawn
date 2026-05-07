@@ -87,6 +87,16 @@ Shows a divergence preview and asks for confirmation. Pass `--auto-push` to skip
 
 Place your customizations in `./.yawn.toml` (project-specific, also searched in parent directories) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
 
+### Sensitive file redaction
+
+`yawn` never sends content of likely-sensitive or noisy files to the Gemini API. Only a `path: category, +adds -dels` line is included so the model still knows the file changed. Detected categories:
+
+* **git-crypt** — files with `filter=git-crypt` or `diff=git-crypt` in `.gitattributes` (protects you when the repo is unlocked locally).
+* **encrypted** — `*.ejson`, `*.age`, `*.gpg`, `*.enc`.
+* **lockfile** — `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `Cargo.lock`, `Gemfile.lock`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `composer.lock`, `mix.lock`, `bun.lockb`, `Podfile.lock`.
+* **binary** — anything `git diff` reports as binary (images, archives, etc.).
+* **skipped** — opt-in per file via `.gitattributes`: add a line like `path/to/file yawn=skip` (or just `yawn`).
+
 By default, `yawn` generates commit messages following the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification, which provides a standardized format for commit messages. This makes your commit history more readable and enables automated tools to parse your commit messages.
 
 ## Roadmap

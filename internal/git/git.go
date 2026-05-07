@@ -141,16 +141,11 @@ func (c *ExecGitClient) GetDiff() (string, error) {
 	if err != nil || numstatOutput == "" {
 		return "", err
 	}
-
-	files := parseFilesFromNumstat(numstatOutput)
-	if len(files) == 0 {
-		return "", nil
-	}
-	return c.getDiffForFiles(files), nil
+	return c.buildFilteredDiff(numstatOutput, []string{"diff", "--cached", "--no-color"}), nil
 }
 
 func (c *ExecGitClient) getNumstatOutput() (string, error) {
-	numstatOutput, err := c.runGitCommand("diff", "--cached", "--numstat", "--no-color")
+	numstatOutput, err := c.runGitCommand("diff", "--cached", "--numstat", "-z", "--no-renames", "--no-color")
 	if err != nil {
 		if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
 			return gitErr.Output, nil
@@ -160,30 +155,63 @@ func (c *ExecGitClient) getNumstatOutput() (string, error) {
 	return numstatOutput, nil
 }
 
-func parseFilesFromNumstat(output string) []string {
-	var files []string
-	for _, line := range strings.Split(output, "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) == 3 {
-			files = append(files, parts[2])
-		}
+func (c *ExecGitClient) checkAttrs(attrs []string, files []string) (map[string]map[string]string, error) {
+	if len(files) == 0 || len(attrs) == 0 {
+		return nil, nil
 	}
-	return files
+	args := append([]string{"check-attr", "-z"}, attrs...)
+	args = append(args, "--")
+	args = append(args, files...)
+	out, err := c.runGitCommand(args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseCheckAttrOutput(out), nil
 }
 
-func (c *ExecGitClient) getDiffForFiles(files []string) string {
-	args := append([]string{"diff", "--cached", "--no-color", "--"}, files...)
-	output, err := c.runGitCommand(args...)
-	if err != nil {
-		if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
-			return gitErr.Output
-		}
+func (c *ExecGitClient) buildFilteredDiff(numstatOutput string, diffBaseArgs []string) string {
+	entries := parseNumstatEntries(numstatOutput)
+	if len(entries) == 0 {
 		return ""
 	}
-	return output
+	paths := make([]string, len(entries))
+	for i, e := range entries {
+		paths[i] = e.path
+	}
+	attrs, _ := c.checkAttrs([]string{"filter", "diff", "yawn"}, paths)
+
+	var normalFiles []string
+	var redacted []classifiedFile
+	for _, e := range entries {
+		cat := classifyEntry(e, attrs[e.path])
+		if cat == catNormal {
+			normalFiles = append(normalFiles, e.path)
+			continue
+		}
+		redacted = append(redacted, classifiedFile{entry: e, category: cat})
+	}
+
+	var b strings.Builder
+	if len(normalFiles) > 0 {
+		args := append([]string{}, diffBaseArgs...)
+		args = append(args, "--")
+		args = append(args, normalFiles...)
+		out, err := c.runGitCommand(args...)
+		if err != nil {
+			if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
+				b.WriteString(gitErr.Output)
+			}
+		} else {
+			b.WriteString(out)
+		}
+	}
+	if summary := formatRedactedSummary(redacted); summary != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(summary)
+	}
+	return b.String()
 }
 
 func (c *ExecGitClient) StageChanges() error {
@@ -293,11 +321,8 @@ func (c *ExecGitClient) GetLastCommitHash() (string, error) {
 }
 
 func sumNumstatLines(output string) (additions, deletions int) {
-	for _, line := range strings.Split(output, "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
+	for _, record := range splitNumstatRecords(output) {
+		parts := strings.Split(record, "\t")
 		if len(parts) < 2 {
 			continue
 		}
