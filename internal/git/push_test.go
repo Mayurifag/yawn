@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -203,6 +204,22 @@ func TestGeneratePRURL(t *testing.T) {
 			expected: "https://github.com/owner/repo/compare/feature/my-feature?expand=1",
 		},
 		{
+			name:     "GitHub branch with heads prefix",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "heads/opencode",
+			expected: "https://github.com/owner/repo/compare/opencode?expand=1",
+		},
+		{
+			name:     "GitHub branch with refs heads prefix",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "refs/heads/opencode",
+			expected: "https://github.com/owner/repo/compare/opencode?expand=1",
+		},
+		{
 			name:     "GitLab feature branch",
 			host:     "gitlab.com",
 			owner:    "owner",
@@ -351,5 +368,108 @@ func TestGenerateRepoLink(t *testing.T) {
 				t.Errorf("GenerateRepoLink() = %q, expected %q", result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestFindPullRequestURL(t *testing.T) {
+	tests := []struct {
+		name         string
+		host         string
+		branch       string
+		lookupURL    string
+		lookupErr    error
+		expected     string
+		shouldLookup bool
+	}{
+		{
+			name:         "GitHub host returns existing PR URL",
+			host:         "github.com",
+			branch:       "opencode",
+			lookupURL:    "https://github.com/owner/repo/pull/20",
+			expected:     "https://github.com/owner/repo/pull/20",
+			shouldLookup: true,
+		},
+		{
+			name:         "GitHub lookup error returns empty",
+			host:         "github.com",
+			branch:       "feature",
+			lookupErr:    errors.New("no pull requests found"),
+			expected:     "",
+			shouldLookup: true,
+		},
+		{
+			name:         "GitHub lookup strips heads prefix",
+			host:         "github.com",
+			branch:       "heads/opencode",
+			lookupURL:    "https://github.com/owner/repo/pull/20",
+			expected:     "https://github.com/owner/repo/pull/20",
+			shouldLookup: true,
+		},
+		{
+			name:         "GitLab host skips lookup",
+			host:         "gitlab.com",
+			branch:       "feature",
+			expected:     "",
+			shouldLookup: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lookedUp := false
+			client := &MockGitClient{
+				MockGetPullRequestURL: func(branch string) (string, error) {
+					lookedUp = true
+					expectedBranch := normalizeBranchName(tt.branch)
+					if branch != expectedBranch {
+						t.Errorf("GetPullRequestURL branch = %q, expected %q", branch, expectedBranch)
+					}
+					return tt.lookupURL, tt.lookupErr
+				},
+			}
+
+			result := FindPullRequestURL(client, tt.host, tt.branch)
+
+			if result != tt.expected {
+				t.Errorf("FindPullRequestURL() = %q, expected %q", result, tt.expected)
+			}
+			if lookedUp != tt.shouldLookup {
+				t.Errorf("lookup = %v, expected %v", lookedUp, tt.shouldLookup)
+			}
+		})
+	}
+}
+
+func TestExecutePushUsesExistingPullRequest(t *testing.T) {
+	client := &MockGitClient{
+		MockPush: func(command string) (string, error) {
+			return "Everything up-to-date", nil
+		},
+		MockGetRemoteURL: func(remoteName string) (string, error) {
+			return "git@github.com:owner/repo.git", nil
+		},
+		MockGetCurrentBranch: func() (string, error) {
+			return "opencode", nil
+		},
+		MockGetDefaultBranch: func() (string, error) {
+			return "master", nil
+		},
+		MockGetPullRequestURL: func(branch string) (string, error) {
+			if branch != "opencode" {
+				t.Errorf("GetPullRequestURL branch = %q, expected opencode", branch)
+			}
+			return "https://github.com/owner/repo/pull/20", nil
+		},
+	}
+
+	result, err := NewPusher(client).ExecutePush("git push")
+	if err != nil {
+		t.Fatalf("ExecutePush() unexpected error: %v", err)
+	}
+	if result.PRLink != "https://github.com/owner/repo/pull/20" {
+		t.Errorf("PRLink = %q, expected existing PR URL", result.PRLink)
+	}
+	if result.SuggestPRLink != "" {
+		t.Errorf("SuggestPRLink = %q, expected empty", result.SuggestPRLink)
 	}
 }

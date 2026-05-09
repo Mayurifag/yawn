@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Mayurifag/yawn/internal/gemini"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/Mayurifag/yawn/internal/ui"
 )
@@ -16,8 +17,6 @@ const (
 	dirtyStash
 	dirtyAdd
 )
-
-var defaultBranchNames = map[string]bool{"main": true, "master": true, "dev": true}
 
 func (a *App) handleDirtyState() (dirtyAction, error) {
 	hasChanges, err := a.GitClient.HasAnyChanges()
@@ -47,7 +46,7 @@ func (a *App) squashSetup() (base string, count int, err error) {
 		return
 	}
 	defaultBranch, _ := a.GitClient.GetDefaultBranch()
-	if defaultBranchNames[branch] || (defaultBranch != "" && branch == defaultBranch) {
+	if defaultBranch != "" && branch == defaultBranch {
 		err = fmt.Errorf("squash: cannot squash on default branch %q", branch)
 		return
 	}
@@ -70,16 +69,20 @@ func (a *App) printSquashLinks() {
 	}
 	repoLink := git.GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo)
 	var suggestPRLink string
+	var prLink string
 	if branch, err := a.GitClient.GetCurrentBranch(); err == nil {
 		defaultBranch, _ := a.GitClient.GetDefaultBranch()
 		if branch != defaultBranch {
-			suggestPRLink = git.GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+			prLink = git.FindPullRequestURL(a.GitClient, remoteInfo.Host, branch)
+			if prLink == "" {
+				suggestPRLink = git.GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+			}
 		}
 	}
-	printLinks(repoLink, "", suggestPRLink)
+	printLinks(repoLink, prLink, suggestPRLink)
 }
 
-func (a *App) handleSingleCommit() error {
+func (a *App) handleSingleCommit(ctx context.Context, base string) error {
 	hasChanges, err := a.GitClient.HasAnyChanges()
 	if err != nil {
 		return err
@@ -95,11 +98,39 @@ func (a *App) handleSingleCommit() error {
 	if ui.AskAmendDirtyAction() != "a" {
 		return fmt.Errorf("squash: cancelled")
 	}
+	if err := a.ensureAPIKey(); err != nil {
+		return err
+	}
 	ui.PrintInfo("Staging all changes and amending commit...")
 	if err := a.GitClient.StageChanges(); err != nil {
 		return err
 	}
-	if err := a.GitClient.AmendCommit(); err != nil {
+
+	diff, err := a.GitClient.GetDiffCachedRange(base)
+	if err != nil {
+		return fmt.Errorf("failed to get branch changes: %w", err)
+	}
+	if diff == "" {
+		return fmt.Errorf("no branch changes to amend")
+	}
+
+	geminiClient, err := gemini.NewClient(a.Config.GeminiAPIKey, a.Config.GeminiModel)
+	if err != nil {
+		return fmt.Errorf("failed to create Gemini client: %w", err)
+	}
+
+	branchName, err := a.GitClient.GetCurrentBranch()
+	if err != nil {
+		branchName = "unknown"
+	}
+	additions, deletions, _ := a.GitClient.GetDiffNumStatCachedRange(base)
+	ui.PrintPreGenerationInfo(branchName, additions, deletions, a.Config.GeminiModel)
+
+	message, err := a.generateCommitMessageAndStream(ctx, geminiClient, a.Config.Prompt, diff)
+	if err != nil {
+		return err
+	}
+	if err := a.GitClient.AmendCommit(message); err != nil {
 		return err
 	}
 	return a.handleSquashPush()
@@ -164,7 +195,7 @@ func (a *App) RunSquash(ctx context.Context) error {
 		return fmt.Errorf("squash: no commits on branch")
 	}
 	if count == 1 {
-		return a.handleSingleCommit()
+		return a.handleSingleCommit(ctx, base)
 	}
 	return a.handleMultiCommitSquash(ctx, base, count)
 }

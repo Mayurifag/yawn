@@ -1,32 +1,35 @@
 package git
 
 type MockGitClient struct {
-	MockHasStagedChanges      func() (bool, error)
-	MockHasUnstagedChanges    func() (bool, error)
-	MockHasAnyChanges         func() (bool, error)
-	MockGetDiff               func() (string, error)
-	MockStageChanges          func() error
-	MockCommit                func(message string) error
-	MockAmendCommit           func() error
-	MockPush                  func(command string) (string, error)
-	MockHasRemotes            func() (bool, error)
-	MockGetCurrentBranch      func() (string, error)
-	MockGetRemoteURL          func(remoteName string) (string, error)
-	MockSetRemoteURL          func(remote, newURL string) error
-	MockGetLastCommitHash     func() (string, error)
-	MockGetDiffNumStatSummary func() (additions int, deletions int, err error)
-	MockFindBranchBase        func(branch string) (string, error)
-	MockGetCommitCountRange   func(base string) (int, error)
-	MockGetDiffRange          func(base string) (string, error)
-	MockGetDiffNumStatRange   func(base string) (additions int, deletions int, err error)
-	MockResetSoft             func(commit string) error
-	MockStash                 func() error
-	MockStashPop              func() error
-	MockGetUnpushedCommits    func() ([]string, error)
-	MockGetRemoteOnlyCommits  func() ([]string, error)
-	MockGetDivergenceVsOrigin func(branch string) ([]string, []string, error)
-	MockGetStatusShort        func() (string, error)
-	MockGetDefaultBranch      func() (string, error)
+	MockHasStagedChanges          func() (bool, error)
+	MockHasUnstagedChanges        func() (bool, error)
+	MockHasAnyChanges             func() (bool, error)
+	MockGetDiff                   func() (string, error)
+	MockStageChanges              func() error
+	MockCommit                    func(message string) error
+	MockAmendCommit               func(message string) error
+	MockPush                      func(command string) (string, error)
+	MockHasRemotes                func() (bool, error)
+	MockGetCurrentBranch          func() (string, error)
+	MockGetRemoteURL              func(remoteName string) (string, error)
+	MockSetRemoteURL              func(remote, newURL string) error
+	MockGetLastCommitHash         func() (string, error)
+	MockGetDiffNumStatSummary     func() (additions int, deletions int, err error)
+	MockFindBranchBase            func(branch string) (string, error)
+	MockGetCommitCountRange       func(base string) (int, error)
+	MockGetDiffRange              func(base string) (string, error)
+	MockGetDiffCachedRange        func(base string) (string, error)
+	MockGetDiffNumStatRange       func(base string) (additions int, deletions int, err error)
+	MockGetDiffNumStatCachedRange func(base string) (additions int, deletions int, err error)
+	MockResetSoft                 func(commit string) error
+	MockStash                     func() error
+	MockStashPop                  func() error
+	MockGetUnpushedCommits        func() ([]string, error)
+	MockGetRemoteOnlyCommits      func() ([]string, error)
+	MockGetDivergenceVsOrigin     func(branch string) ([]string, []string, error)
+	MockGetStatusShort            func() (string, error)
+	MockGetDefaultBranch          func() (string, error)
+	MockGetPullRequestURL         func(branch string) (string, error)
 }
 
 func (m *MockGitClient) HasStagedChanges() (bool, error) {
@@ -71,9 +74,9 @@ func (m *MockGitClient) Commit(message string) error {
 	return nil
 }
 
-func (m *MockGitClient) AmendCommit() error {
+func (m *MockGitClient) AmendCommit(message string) error {
 	if m.MockAmendCommit != nil {
-		return m.MockAmendCommit()
+		return m.MockAmendCommit(message)
 	}
 	return nil
 }
@@ -148,9 +151,23 @@ func (m *MockGitClient) GetDiffRange(base string) (string, error) {
 	return "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new", nil
 }
 
+func (m *MockGitClient) GetDiffCachedRange(base string) (string, error) {
+	if m.MockGetDiffCachedRange != nil {
+		return m.MockGetDiffCachedRange(base)
+	}
+	return "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new", nil
+}
+
 func (m *MockGitClient) GetDiffNumStatRange(base string) (int, int, error) {
 	if m.MockGetDiffNumStatRange != nil {
 		return m.MockGetDiffNumStatRange(base)
+	}
+	return 0, 0, nil
+}
+
+func (m *MockGitClient) GetDiffNumStatCachedRange(base string) (int, int, error) {
+	if m.MockGetDiffNumStatCachedRange != nil {
+		return m.MockGetDiffNumStatCachedRange(base)
 	}
 	return 0, 0, nil
 }
@@ -209,4 +226,11 @@ func (m *MockGitClient) GetDefaultBranch() (string, error) {
 		return m.MockGetDefaultBranch()
 	}
 	return "main", nil
+}
+
+func (m *MockGitClient) GetPullRequestURL(branch string) (string, error) {
+	if m.MockGetPullRequestURL != nil {
+		return m.MockGetPullRequestURL(branch)
+	}
+	return "", nil
 }

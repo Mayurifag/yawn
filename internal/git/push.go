@@ -10,7 +10,7 @@ import (
 var prURLRe = regexp.MustCompile(`https://\S+`)
 
 func extractPRLink(output string) string {
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if match := prURLRe.FindString(line); match != "" {
 			lower := strings.ToLower(match)
 			if strings.Contains(lower, "/pull/") || strings.Contains(lower, "merge_request") || strings.Contains(lower, "/compare/") {
@@ -82,7 +82,13 @@ var defaultBranches = map[string]bool{
 	"dev":    true,
 }
 
+func normalizeBranchName(branch string) string {
+	branch = strings.TrimPrefix(branch, "refs/heads/")
+	return strings.TrimPrefix(branch, "heads/")
+}
+
 func GeneratePRURL(host, owner, repo, branch string) string {
+	branch = normalizeBranchName(branch)
 	if host == "" || owner == "" || repo == "" || branch == "" || defaultBranches[branch] {
 		return ""
 	}
@@ -91,6 +97,18 @@ func GeneratePRURL(host, owner, repo, branch string) string {
 			host, owner, repo, url.QueryEscape(branch))
 	}
 	return fmt.Sprintf("https://%s/%s/%s/compare/%s?expand=1", host, owner, repo, branch)
+}
+
+func FindPullRequestURL(gitClient GitClient, host, branch string) string {
+	if !isGitHubHost(host) {
+		return ""
+	}
+	branch = normalizeBranchName(branch)
+	prURL, err := gitClient.GetPullRequestURL(branch)
+	if err != nil {
+		return ""
+	}
+	return prURL
 }
 
 type PushResult struct {
@@ -139,7 +157,11 @@ func (p *Pusher) ExecutePush(command string) (*PushResult, error) {
 				if branch, err := p.gitClient.GetCurrentBranch(); err == nil {
 					defaultBranch, _ := p.gitClient.GetDefaultBranch()
 					if branch != defaultBranch {
-						result.SuggestPRLink = GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+						if prLink := FindPullRequestURL(p.gitClient, remoteInfo.Host, branch); prLink != "" {
+							result.PRLink = prLink
+						} else {
+							result.SuggestPRLink = GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+						}
 					}
 				}
 			}
