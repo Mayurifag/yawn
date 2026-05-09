@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const NetworkPushTimeout = 60 * time.Second
+const (
+	NetworkPushTimeout = 60 * time.Second
+	PRLookupTimeout    = 10 * time.Second
+)
 
 var ErrNetworkTimeout = errors.New("git network operation timed out")
 
@@ -23,7 +26,7 @@ type GitClient interface {
 	GetDiff() (string, error)
 	StageChanges() error
 	Commit(message string) error
-	AmendCommit() error
+	AmendCommit(message string) error
 	Push(command string) (string, error)
 	HasRemotes() (bool, error)
 	GetCurrentBranch() (string, error)
@@ -34,7 +37,9 @@ type GitClient interface {
 	FindBranchBase(branch string) (string, error)
 	GetCommitCountRange(base string) (int, error)
 	GetDiffRange(base string) (string, error)
+	GetDiffCachedRange(base string) (string, error)
 	GetDiffNumStatRange(base string) (additions int, deletions int, err error)
+	GetDiffNumStatCachedRange(base string) (additions int, deletions int, err error)
 	ResetSoft(commit string) error
 	Stash() error
 	StashPop() error
@@ -43,6 +48,7 @@ type GitClient interface {
 	GetDivergenceVsOrigin(branch string) (localOnly []string, remoteOnly []string, err error)
 	GetStatusShort() (string, error)
 	GetDefaultBranch() (string, error)
+	GetPullRequestURL(branch string) (string, error)
 }
 
 type ExecGitClient struct {
@@ -230,8 +236,8 @@ func (c *ExecGitClient) Commit(message string) error {
 	return nil
 }
 
-func (c *ExecGitClient) AmendCommit() error {
-	_, err := c.runGitCommand("commit", "--amend", "--no-edit")
+func (c *ExecGitClient) AmendCommit(message string) error {
+	_, err := c.runGitCommand("commit", "--amend", "-m", message)
 	if err != nil {
 		return fmt.Errorf("failed to amend commit: %w", err)
 	}
@@ -284,11 +290,76 @@ func (c *ExecGitClient) HasRemotes() (bool, error) {
 }
 
 func (c *ExecGitClient) GetCurrentBranch() (string, error) {
+	if output, err := c.runGitCommand("branch", "--show-current"); err == nil && output != "" {
+		return normalizeBranchName(output), nil
+	}
 	output, err := c.runGitCommand("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("failed to get current branch: %w", err)
 	}
-	return output, nil
+	return normalizeBranchName(output), nil
+}
+
+func (c *ExecGitClient) GetPullRequestURL(branch string) (string, error) {
+	branch = normalizeBranchName(branch)
+	if branch == "" {
+		return "", fmt.Errorf("branch is empty")
+	}
+	if _, err := exec.LookPath("gh"); err != nil {
+		return "", fmt.Errorf("gh is not available: %w", err)
+	}
+
+	remoteURL, err := c.GetRemoteURL("")
+	if err != nil {
+		return "", err
+	}
+	remoteInfo, err := ParseRemoteURL(remoteURL)
+	if err != nil {
+		return "", err
+	}
+	if !isGitHubHost(remoteInfo.Host) {
+		return "", fmt.Errorf("not a GitHub remote: %s", remoteInfo.Host)
+	}
+	if err := c.checkGHAuth(remoteInfo.Host); err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), PRLookupTimeout)
+	defer cancel()
+
+	output, err := c.runGHCommandContext(ctx, "pr", "view", branch, "--json", "url", "--jq", ".url")
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("pull request lookup timed out for branch %q", branch)
+		}
+		return "", fmt.Errorf("failed to find pull request for branch %q: %s", branch, strings.TrimSpace(output))
+	}
+	return strings.TrimSpace(output), nil
+}
+
+func isGitHubHost(host string) bool {
+	return strings.Contains(strings.ToLower(host), "github")
+}
+
+func (c *ExecGitClient) checkGHAuth(host string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), PRLookupTimeout)
+	defer cancel()
+	output, err := c.runGHCommandContext(ctx, "auth", "status", "--hostname", host)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("gh auth check timed out for host %q", host)
+		}
+		return fmt.Errorf("gh is not authenticated for host %q: %s", host, strings.TrimSpace(output))
+	}
+	return nil
+}
+
+func (c *ExecGitClient) runGHCommandContext(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Dir = c.RepoPath
+	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1")
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }
 
 func (c *ExecGitClient) GetRemoteURL(remote string) (string, error) {
@@ -354,7 +425,7 @@ func (c *ExecGitClient) getCommitList(rangeArg string) ([]string, error) {
 		return nil, nil
 	}
 	var commits []string
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if line != "" {
 			commits = append(commits, line)
 		}
@@ -380,11 +451,38 @@ func (c *ExecGitClient) GetStatusShort() (string, error) {
 
 func (c *ExecGitClient) GetDefaultBranch() (string, error) {
 	output, err := c.runGitCommand("symbolic-ref", "refs/remotes/origin/HEAD")
-	if err != nil {
-		return "", err
+	if err == nil {
+		return lastRefPart(output), nil
 	}
-	parts := strings.Split(output, "/")
-	return parts[len(parts)-1], nil
+
+	remoteBranches, listErr := c.runGitCommand("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin")
+	if listErr == nil {
+		var branches []string
+		for _, ref := range strings.Split(remoteBranches, "\n") {
+			ref = strings.TrimSpace(ref)
+			if ref != "" && ref != "origin/HEAD" {
+				branches = append(branches, ref)
+			}
+		}
+		if len(branches) == 1 {
+			return lastRefPart(branches[0]), nil
+		}
+	}
+
+	localBranches, localErr := c.runGitCommand("for-each-ref", "--format=%(refname:short)", "refs/heads")
+	if localErr == nil {
+		var branches []string
+		for _, ref := range strings.Split(localBranches, "\n") {
+			ref = strings.TrimSpace(ref)
+			if ref != "" {
+				branches = append(branches, ref)
+			}
+		}
+		if len(branches) == 1 {
+			return branches[0], nil
+		}
+	}
+	return "", err
 }
 
 func (c *ExecGitClient) GetDivergenceVsOrigin(branch string) ([]string, []string, error) {
@@ -401,4 +499,9 @@ func (c *ExecGitClient) GetDivergenceVsOrigin(branch string) ([]string, []string
 		return nil, nil, err
 	}
 	return local, remote, nil
+}
+
+func lastRefPart(ref string) string {
+	parts := strings.Split(ref, "/")
+	return parts[len(parts)-1]
 }

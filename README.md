@@ -101,6 +101,7 @@ By default, `yawn` generates commit messages following the [Conventional Commits
 
 ## Roadmap
 
+* the PR has to be opened to view it
 * Release 1.0.0 when it will be mature enough. homebrew, AUR, else?
 
 ## CLI Flags (not meant to be used, but just in case)

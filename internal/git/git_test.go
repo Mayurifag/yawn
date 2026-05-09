@@ -3,6 +3,11 @@ package git
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -311,5 +316,99 @@ func TestExecGitClient_HasUnstagedChanges(t *testing.T) {
 
 			assert.Equal(t, tt.expectedResult, result)
 		})
+	}
+}
+
+func TestExecGitClient_GetPullRequestURLUsesGHWhenAvailable(t *testing.T) {
+	repoPath := t.TempDir()
+	runGitTestCommand(t, repoPath, "init")
+	runGitTestCommand(t, repoPath, "remote", "add", "origin", "git@github.com:owner/repo.git")
+
+	binDir := t.TempDir()
+	writeFakeGH(t, binDir, `#!/bin/sh
+if [ "$1" = "auth" ]; then
+	exit 0
+fi
+if [ "$1" = "pr" ]; then
+	echo "https://github.com/owner/repo/pull/20"
+	exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	client := &ExecGitClient{RepoPath: repoPath}
+	url, err := client.GetPullRequestURL("refs/heads/feature/test")
+	assert.NoError(t, err)
+	assert.Equal(t, "https://github.com/owner/repo/pull/20", url)
+}
+
+func TestExecGitClient_GetPullRequestURLChecksGHAuthBeforePRLookup(t *testing.T) {
+	repoPath := t.TempDir()
+	runGitTestCommand(t, repoPath, "init")
+	runGitTestCommand(t, repoPath, "remote", "add", "origin", "git@github.com:owner/repo.git")
+
+	binDir := t.TempDir()
+	markerPath := filepath.Join(t.TempDir(), "pr-called")
+	writeFakeGH(t, binDir, `#!/bin/sh
+if [ "$1" = "auth" ]; then
+	echo "not logged in"
+	exit 1
+fi
+if [ "$1" = "pr" ]; then
+	touch "$GH_PR_MARKER"
+	exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GH_PR_MARKER", markerPath)
+
+	client := &ExecGitClient{RepoPath: repoPath}
+	_, err := client.GetPullRequestURL("feature/test")
+	assert.ErrorContains(t, err, "gh is not authenticated")
+	assert.NoFileExists(t, markerPath)
+}
+
+func writeFakeGH(t *testing.T, dir, script string) {
+	t.Helper()
+	name := "gh"
+	if runtime.GOOS == "windows" {
+		name = "gh.bat"
+		if strings.Contains(script, "not logged in") {
+			script = `@echo off
+if "%1"=="auth" (
+	echo not logged in
+	exit /b 1
+)
+if "%1"=="pr" (
+	type nul > "%GH_PR_MARKER%"
+	exit /b 0
+)
+exit /b 1
+`
+		} else {
+			script = `@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="pr" (
+	echo https://github.com/owner/repo/pull/20
+	exit /b 0
+)
+exit /b 1
+`
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runGitTestCommand(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
 }
