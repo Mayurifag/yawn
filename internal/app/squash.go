@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Mayurifag/yawn/internal/gemini"
+	"github.com/Mayurifag/yawn/internal/ai"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/Mayurifag/yawn/internal/ui"
 )
@@ -114,9 +114,9 @@ func (a *App) handleSingleCommit(ctx context.Context, base string) error {
 		return fmt.Errorf("no branch changes to amend")
 	}
 
-	geminiClient, err := gemini.NewClient(a.Config.GeminiAPIKey, a.Config.GeminiModel)
+	aiClient, err := ai.NewClient(a.Config)
 	if err != nil {
-		return fmt.Errorf("failed to create Gemini client: %w", err)
+		return fmt.Errorf("failed to create AI client: %w", err)
 	}
 
 	branchName, err := a.GitClient.GetCurrentBranch()
@@ -124,9 +124,9 @@ func (a *App) handleSingleCommit(ctx context.Context, base string) error {
 		branchName = "unknown"
 	}
 	additions, deletions, _ := a.GitClient.GetDiffNumStatCachedRange(base)
-	ui.PrintPreGenerationInfo(branchName, additions, deletions, a.Config.GeminiModel)
+	ui.PrintPreGenerationInfo(branchName, additions, deletions, a.Config.GetModelLabel())
 
-	message, err := a.generateCommitMessageAndStream(ctx, geminiClient, a.Config.Prompt, diff)
+	message, err := a.generateCommitMessageAndStream(ctx, aiClient, a.Config.Prompt, diff)
 	if err != nil {
 		return err
 	}

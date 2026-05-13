@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Mayurifag/yawn/internal/ai"
 	"github.com/Mayurifag/yawn/internal/config"
-	"github.com/Mayurifag/yawn/internal/gemini"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/Mayurifag/yawn/internal/ui"
 )
@@ -55,17 +55,22 @@ func containsAny(s string, subs ...string) bool {
 }
 
 func (a *App) ensureAPIKey() error {
-	if a.Config.GeminiAPIKey == "" {
-		ui.PrintInfo("No API key found. Please provide your Google Gemini API key.")
-		ui.PrintInfo("You can get one from: https://makersuite.google.com/app/apikey")
-		apiKey := ui.AskForInput("Enter your Google Gemini API key: ", true)
+	if !config.ProviderRequiresAPIKey(a.Config.GetMainProvider()) {
+		return nil
+	}
+	if a.Config.GetAPIKey() == "" {
+		provider := a.Config.GetMainProvider()
+		providerName := config.ProviderDisplayName(provider)
+		ui.PrintInfo(fmt.Sprintf("No API key found for %s.", providerName))
+		ui.PrintInfo(config.ProviderAPIKeyHelp(provider))
+		apiKey := ui.AskForInput(fmt.Sprintf("Enter your %s API key: ", providerName), true)
 		if apiKey == "" {
 			return fmt.Errorf("API key is required")
 		}
-		if err := config.SaveAPIKeyToUserConfig(apiKey); err != nil {
+		if err := config.SaveProviderAPIKeyToUserConfig(provider, apiKey); err != nil {
 			ui.PrintError(fmt.Sprintf("Warning: Failed to save API key to config file: %v", err))
 		}
-		a.Config.GeminiAPIKey = apiKey
+		a.Config.SetAPIKey(apiKey)
 	}
 	return nil
 }
@@ -128,15 +133,15 @@ func (a *App) generateAndCommitChanges(ctx context.Context) error {
 		return fmt.Errorf("no staged changes to commit")
 	}
 
-	geminiClient, err := gemini.NewClient(a.Config.GeminiAPIKey, a.Config.GeminiModel)
+	aiClient, err := ai.NewClient(a.Config)
 	if err != nil {
-		return fmt.Errorf("failed to create Gemini client: %w", err)
+		return fmt.Errorf("failed to create AI client: %w", err)
 	}
 
 	branchName, additions, deletions := a.gatherCommitInfo()
-	ui.PrintPreGenerationInfo(branchName, additions, deletions, a.Config.GeminiModel)
+	ui.PrintPreGenerationInfo(branchName, additions, deletions, a.Config.GetModelLabel())
 
-	message, err := a.generateCommitMessageAndStream(ctx, geminiClient, a.Config.Prompt, diff)
+	message, err := a.generateCommitMessageAndStream(ctx, aiClient, a.Config.Prompt, diff)
 	if err != nil {
 		return err
 	}

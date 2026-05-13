@@ -29,11 +29,11 @@ func ensureUserConfigDir() (string, error) {
 func GenerateConfigContent(apiKey string) ([]byte, error) {
 	var buf bytes.Buffer
 
-	buf.WriteString("# Configuration file for yawn - AI Git Committer using Google Gemini\n#\n# Placement:\n#   ~/.config/yawn/config.toml (user config)\n#   ./.yawn.toml (project config, add to .gitignore)\n#\n# Precedence: CLI flags > env vars > project config > user config > defaults\n# Uncomment and change only the values you want to override.\n\n")
+	buf.WriteString("# Configuration file for yawn - AI Git Committer\n#\n# Placement:\n#   ~/.config/yawn/config.toml (user config)\n#   ./.yawn.toml (project config, add to .gitignore)\n#\n# Precedence: CLI flags > env vars > project config > user config > defaults\n# Uncomment and change only the values you want to override.\n\n")
 
-	fmt.Fprintf(&buf, "gemini_api_key = %q\n\n", apiKey)
+	fmt.Fprintf(&buf, "main_provider = %q\n", DefaultProvider)
+	buf.WriteString("# fallback_provider = \"opencode_cli\"\n\n")
 
-	fmt.Fprintf(&buf, "# gemini_model = %q\n", DefaultGeminiModel)
 	fmt.Fprintf(&buf, "# request_timeout_seconds = %d\n", DefaultTimeoutSecs)
 	fmt.Fprintf(&buf, "# auto_stage = %v\n", DefaultAutoStage)
 	fmt.Fprintf(&buf, "# auto_push = %v\n", DefaultAutoPush)
@@ -47,11 +47,27 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 		fmt.Fprintf(&buf, "# %s\n", line)
 	}
 	buf.WriteString("# '''\n")
+	buf.WriteString("\n")
+
+	buf.WriteString("# Provider examples:\n")
+	fmt.Fprintf(&buf, "#   main_provider = %q\n", ProviderOpenCodeCLI)
+	fmt.Fprintf(&buf, "#   fallback_provider = %q\n\n", ProviderGemini)
+
+	buf.WriteString("[providers.gemini]\n")
+	fmt.Fprintf(&buf, "api_key = %q\n", apiKey)
+	fmt.Fprintf(&buf, "# model = %q\n\n", DefaultGeminiModel)
+
+	buf.WriteString("# [providers.opencode_cli]\n")
+	fmt.Fprintf(&buf, "# model = %q\n", DefaultOpenCodeCLIModel)
 
 	return buf.Bytes(), nil
 }
 
 func SaveAPIKeyToUserConfig(apiKey string) error {
+	return SaveProviderAPIKeyToUserConfig(DefaultProvider, apiKey)
+}
+
+func SaveProviderAPIKeyToUserConfig(provider, apiKey string) error {
 	configPath, err := ensureUserConfigDir()
 	if err != nil {
 		return fmt.Errorf("failed to prepare user config directory: %w", err)
@@ -61,16 +77,20 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 
 	_, statErr := os.Stat(configPath)
 	if os.IsNotExist(statErr) {
-		configContent, err = GenerateConfigContent(apiKey)
+		configContent, err = GenerateConfigContent("")
 		if err != nil {
 			return fmt.Errorf("failed to generate new config content: %w", err)
+		}
+		configContent, err = updateExistingConfigContent(configContent, provider, apiKey)
+		if err != nil {
+			return err
 		}
 	} else if statErr == nil {
 		existingContent, readErr := os.ReadFile(configPath)
 		if readErr != nil {
 			return fmt.Errorf("failed to read existing config file %s: %w", configPath, readErr)
 		}
-		configContent, err = updateExistingConfigContent(existingContent, apiKey)
+		configContent, err = updateExistingConfigContent(existingContent, provider, apiKey)
 		if err != nil {
 			return err
 		}
@@ -81,16 +101,68 @@ func SaveAPIKeyToUserConfig(apiKey string) error {
 	return writeConfigFileAtomically(configContent, configPath)
 }
 
-func updateExistingConfigContent(existingContent []byte, apiKey string) ([]byte, error) {
-	newLine := fmt.Sprintf("gemini_api_key = %q", apiKey)
+func updateExistingConfigContent(existingContent []byte, provider, apiKey string) ([]byte, error) {
+	provider = NormalizeProvider(provider)
+	content, err := updateConfigKeyContent(existingContent, "main_provider", provider)
+	if err != nil {
+		return nil, err
+	}
+	return updateProviderConfigKeyContent(content, provider, "api_key", apiKey), nil
+}
+
+func updateConfigKeyContent(existingContent []byte, key, value string) ([]byte, error) {
+	newLine := fmt.Sprintf("%s = %q", key, value)
 	lines := strings.Split(string(existingContent), "\n")
 	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "gemini_api_key") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, key+" ") || strings.HasPrefix(trimmed, key+"=") {
 			lines[i] = newLine
 			return []byte(strings.Join(lines, "\n")), nil
 		}
 	}
 	return []byte(newLine + "\n" + string(existingContent)), nil
+}
+
+func updateProviderConfigKeyContent(existingContent []byte, provider, key, value string) []byte {
+	table := fmt.Sprintf("[providers.%s]", NormalizeProvider(provider))
+	newLine := fmt.Sprintf("%s = %q", key, value)
+	lines := strings.Split(string(existingContent), "\n")
+	inTable := false
+	insertAt := len(lines)
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			if inTable {
+				insertAt = i
+				break
+			}
+			inTable = trimmed == table
+			if inTable {
+				insertAt = i + 1
+			}
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		if strings.HasPrefix(trimmed, key+" ") || strings.HasPrefix(trimmed, key+"=") {
+			lines[i] = newLine
+			return []byte(strings.Join(lines, "\n"))
+		}
+		insertAt = i + 1
+	}
+
+	if !inTable {
+		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+			lines = append(lines, "")
+		}
+		lines = append(lines, table, newLine)
+		return []byte(strings.Join(lines, "\n"))
+	}
+
+	lines = append(lines[:insertAt], append([]string{newLine}, lines[insertAt:]...)...)
+	return []byte(strings.Join(lines, "\n"))
 }
 
 func writeConfigFileAtomically(content []byte, targetPath string) error {

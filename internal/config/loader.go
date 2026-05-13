@@ -18,12 +18,24 @@ type envField struct {
 }
 
 var envFields = []envField{
-	{EnvPrefix + "GEMINI_API_KEY", "GeminiAPIKey", func(c *Config, v string) bool {
-		c.GeminiAPIKey = v
+	{EnvPrefix + "MAIN_PROVIDER", "MainProvider", func(c *Config, v string) bool {
+		c.MainProvider = v
 		return true
 	}},
-	{EnvPrefix + "GEMINI_MODEL", "GeminiModel", func(c *Config, v string) bool {
-		c.GeminiModel = v
+	{EnvPrefix + "FALLBACK_PROVIDER", "FallbackProvider", func(c *Config, v string) bool {
+		c.FallbackProvider = v
+		return true
+	}},
+	{EnvPrefix + "GEMINI_API_KEY", "Providers", func(c *Config, v string) bool {
+		setProviderAPIKey(c, ProviderGemini, v)
+		return true
+	}},
+	{EnvPrefix + "GEMINI_MODEL", "Providers", func(c *Config, v string) bool {
+		setProviderModel(c, ProviderGemini, v)
+		return true
+	}},
+	{EnvPrefix + "OPENCODE_CLI_MODEL", "Providers", func(c *Config, v string) bool {
+		setProviderModel(c, ProviderOpenCodeCLI, v)
 		return true
 	}},
 	{EnvPrefix + "PROMPT", "Prompt", func(c *Config, v string) bool {
@@ -74,6 +86,20 @@ var envFields = []envField{
 		c.SquashAutoPush = b
 		return true
 	}},
+}
+
+func setProviderAPIKey(cfg *Config, provider, apiKey string) {
+	provider = NormalizeProvider(provider)
+	providerCfg := cfg.Providers[provider]
+	providerCfg.APIKey = apiKey
+	cfg.SetProviderConfig(provider, providerCfg)
+}
+
+func setProviderModel(cfg *Config, provider, model string) {
+	provider = NormalizeProvider(provider)
+	providerCfg := cfg.Providers[provider]
+	providerCfg.Model = model
+	cfg.SetProviderConfig(provider, providerCfg)
 }
 
 func getUserConfigPath() (string, error) {
@@ -162,8 +188,30 @@ func mergeConfig(base *Config, loaded Config, meta toml.MetaData, src string) {
 		if !meta.IsDefined(tomlKey) {
 			continue
 		}
+		if field.Name == "Providers" {
+			mergeProviders(base, loaded.Providers)
+			base.sources[field.Name] = src
+			continue
+		}
 		bv.Field(i).Set(lv.Field(i))
 		base.sources[field.Name] = src
+	}
+}
+
+func mergeProviders(base *Config, loadedProviders map[string]ProviderConfig) {
+	if base.Providers == nil {
+		base.Providers = map[string]ProviderConfig{}
+	}
+	for provider, loadedProvider := range loadedProviders {
+		provider = NormalizeProvider(provider)
+		providerCfg := base.Providers[provider]
+		if loadedProvider.APIKey != "" {
+			providerCfg.APIKey = loadedProvider.APIKey
+		}
+		if loadedProvider.Model != "" {
+			providerCfg.Model = loadedProvider.Model
+		}
+		base.Providers[provider] = providerCfg
 	}
 }
 
@@ -179,8 +227,8 @@ func loadConfigFromEnv(cfg *Config) {
 
 func applyFlags(cfg *Config, flags CLIFlags) {
 	if flags.APIKey != nil && *flags.APIKey != "" {
-		cfg.GeminiAPIKey = *flags.APIKey
-		cfg.sources["GeminiAPIKey"] = "flag"
+		cfg.SetAPIKey(*flags.APIKey)
+		cfg.sources["Providers"] = "flag"
 	}
 	if flags.AutoStage != nil {
 		cfg.AutoStage = *flags.AutoStage

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Mayurifag/yawn/internal/gemini"
+	"github.com/Mayurifag/yawn/internal/ai"
 	"github.com/Mayurifag/yawn/internal/ui"
 )
 
@@ -14,12 +14,12 @@ const maxCommitGenRetries = 3
 
 var errRequestTimeout = errors.New("request timeout")
 
-func (a *App) doGenerateStream(ctx context.Context, geminiClient gemini.Client, systemPrompt, userContent string) (string, error) {
+func (a *App) doGenerateStream(ctx context.Context, aiClient ai.Client, systemPrompt, userContent string) (string, error) {
 	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
 	defer cancel()
 
 	spinner := ui.StartSpinner("Generating commit message...")
-	stream, err := geminiClient.GenerateCommitMessageStream(ctxTimeout, systemPrompt, userContent)
+	stream, err := aiClient.GenerateCommitMessageStream(ctxTimeout, systemPrompt, userContent)
 	ui.StopSpinner(spinner)
 
 	if err != nil {
@@ -39,20 +39,20 @@ func (a *App) doGenerateStream(ctx context.Context, geminiClient gemini.Client, 
 		return "", fmt.Errorf("error receiving commit message stream: %w", err)
 	}
 	if message == "" {
-		return "", fmt.Errorf("empty commit message received from Gemini")
+		return "", fmt.Errorf("empty commit message received from AI provider")
 	}
 	return message, nil
 }
 
-func (a *App) generateCommitMessageAndStream(ctx context.Context, geminiClient gemini.Client, systemPrompt, userContent string) (string, error) {
+func (a *App) generateCommitMessageAndStream(ctx context.Context, aiClient ai.Client, systemPrompt, userContent string) (string, error) {
 	var lastErr error
 	for attempt := range maxCommitGenRetries {
-		msg, err := a.doGenerateStream(ctx, geminiClient, systemPrompt, userContent)
+		msg, err := a.doGenerateStream(ctx, aiClient, systemPrompt, userContent)
 		if err == nil {
 			return msg, nil
 		}
 		lastErr = err
-		isRetryable := gemini.IsTransientError(err) || errors.Is(err, errRequestTimeout)
+		isRetryable := ai.IsTransientError(err) || errors.Is(err, errRequestTimeout)
 		if !isRetryable || attempt == maxCommitGenRetries-1 || ctx.Err() != nil {
 			return "", err
 		}
