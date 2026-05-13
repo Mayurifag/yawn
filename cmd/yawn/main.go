@@ -31,13 +31,12 @@ func main() {
 
 var rootCmd = &cobra.Command{
 	Use:   "yawn",
-	Short: "yawn 🥱 - AI Git Commiter using Google Gemini",
-	Long: `Yawn analyzes your staged Git changes, sends them to a configured Google Gemini
-model, and generates a conventional commit message.
-
-It helps streamline your commit workflow by providing AI-suggested messages.
-Configuration is loaded from ~/.config/yawn/config.toml, ./.yawn.toml, and environment
-variables (YAWN_*)`,
+	Short: "yawn 🥱 - AI Git Commiter",
+	Long: "Yawn analyzes your staged Git changes, sends them to a configured AI\n" +
+		"provider, and generates a conventional commit message.\n\n" +
+		"It helps streamline your commit workflow by providing AI-suggested messages.\n" +
+		"Configuration is loaded from ~/.config/yawn/config.toml, ./.yawn.toml, and environment\n" +
+		"variables (YAWN_*)",
 	Version: version,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagGenerateConfig {
@@ -180,7 +179,7 @@ func init() {
 		}
 	}
 
-	rootCmd.Flags().StringVar(&flagAPIKey, "api-key", "", "Gemini API key (overrides config/env)")
+	rootCmd.Flags().StringVar(&flagAPIKey, "api-key", "", "AI provider API key (overrides config/env)")
 	rootCmd.Flags().BoolVar(&flagAutoStage, "auto-stage", false, "Automatically stage all unstaged changes without prompting")
 	rootCmd.Flags().BoolVar(&flagAutoPush, "auto-push", false, "Automatically push after commit")
 	rootCmd.Flags().BoolVar(&flagGenerateConfig, "generate-config", false, "Print default configuration TOML to stdout and exit")

@@ -5,111 +5,130 @@
 [![CI](https://github.com/Mayurifag/yawn/actions/workflows/ci.yml/badge.svg)](https://github.com/Mayurifag/yawn/actions/workflows/ci.yml)
 [![Release](https://github.com/Mayurifag/yawn/actions/workflows/release.yml/badge.svg)](https://github.com/Mayurifag/yawn/actions/workflows/release.yml)
 
-**Writing Git commit messages makes you yawn?** 🥱 Here is a tool that will stage/commit/squash/push for you!
+AI-assisted Git commits, squashes, and pushes in a single binary.
 
-## Why Yawn?
+`yawn` stages changes, writes Conventional Commit messages from your diff, commits, pushes, prints PR links, squashes branches, and makes force-pushes harder to regret.
 
-In its most basic form, you make changes, run `yawn`, and boom – your code is staged (if needed), committed with AI-generated message, and pushed. All in one go!
+## Why
 
-But "simple" doesn't mean "limited". Under the hood, `yawn` is **super customizable**:
+Writing commit messages is small work that still breaks flow. `yawn` compresses the usual Git loop into one command: stage, describe, commit, push, and show the next PR link.
 
-* Tweak the AI prompt or use different Gemini model? ✅
-* Automatically stage changes, commit and push? ✅
-* Squash the branch onto single commit fast? ✅
-* Have a link to repository and MR? ✅
-* Need to push skipping Git hooks (`git push --no-verify`)? You may even force push, if you want. ✅
-* Push gets a per-attempt timeout and 3 retries with exponential backoff. ✅
-* HTTPS remotes are detected and you're prompted to convert them to SSH. ✅
-* Override defaults using environment variables or additional parameters? ✅
-* Override config per project? ✅
+It is tuned for fast personal workflows:
 
-It **really** adapts to your workflow, that's why I made it and why it is better
-than any other Git commit message generator I've tried. It is also
-cross-platform, amd64/arm64 supported and single binary.
+- Conventional Commit messages based on the actual diff.
+- One-command branch cleanup via `yawn squash`.
+- Optional auto-stage and auto-push for trusted repos.
+- Global and per-project config.
+- SSH remote nudges, push retries, and force-push previews.
 
-## Installation
-
-### Using release
+## Install
 
 ~~~sh
-mise use -g github:Mayurifag/yawn@latest # if you have mise installed
-# or place binary from Releases in one of your `$PATH` folders, make it executable.
+mise use -g github:Mayurifag/yawn@latest
 ~~~
 
-Generate global config. Minimal change is to add Google AI Studio API key there:
+Or download a release binary, put it on `PATH`, and make it executable.
+
+From source:
+
+~~~sh
+make install
+~~~
+
+Generate a config:
 
 ~~~sh
 yawn --generate-config > ~/.config/yawn/config.toml
 ~~~
 
-Pro-tip: `alias q="yawn"` is very useful, add it after first tries + config
-adaptations and your workflow will be changed forever. 😉 Same goes for
-`alias sq="yawn squash"` — squash your branch commits into 1 with two keystrokes.
+After setup, aliases make it feel native:
 
-### Building from Source
-
-`make install`
+~~~sh
+alias q="yawn"
+alias sq="yawn squash"
+alias gpf="yawn force-push"
+~~~
 
 ## Commands
 
-### `yawn` (default)
+| Command           | What it does                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `yawn`            | Stage if needed, generate a commit message, commit, and optionally push.             |
+| `yawn squash`     | Squash branch commits since `main`, `master`, or `dev` into one AI-generated commit. |
+| `yawn force-push` | Show divergence, ask for confirmation, then run a safer force push.                  |
 
-Stages, commits with AI-generated message, and pushes.
+## Configuration
 
-If there are no local changes but unpushed commits exist, `yawn` lists them (with date, author, and subject) and offers to push. With `auto_push: true`, it pushes automatically.
+Config is read from `~/.config/yawn/config.toml`, then project `.yawn.toml` files, environment variables, and CLI flags. Later sources win.
 
-After a successful push, `yawn` prints a PR creation link (GitHub compare URL or GitLab merge request URL) when you're on a non-default branch.
+Supported providers are intentionally small. `gemini` and `opencode_cli` were chosen because they work well with fast free-tier or low-cost models and keep `yawn` out of provider-specific account complexity.
 
-### `yawn squash`
+| Provider       | Auth                     | Notes                                         |
+| -------------- | ------------------------ | --------------------------------------------- |
+| `gemini`       | Google AI Studio API key | Default direct API provider.                  |
+| `opencode_cli` | Local OpenCode login     | Uses models available in your OpenCode setup. |
 
-Squashes all commits on the current branch (since it diverged from `main`/`master`/`dev`) into a single AI-generated commit.
+### Gemini
 
-If you have uncommitted changes when squashing, `yawn` prompts: **[Enter]** cancel, **[s]** stash & restore after, **[a]** include in squash.
+~~~toml
+main_provider = "gemini"
 
-### `yawn force-push`
+[providers.gemini]
+api_key = "YOUR_GOOGLE_AI_STUDIO_KEY"
+model = "gemini-flash-latest"
+~~~
 
-Replacement for `git push --force-with-lease` that also prints the repository link and a pull request link (or PR creation link on a non-default branch). Handy to alias (e.g. `alias gpf="yawn force-push"`, like `git push --force`, but better).
+### OpenCode CLI
 
-Shows a divergence preview and asks for confirmation. Pass `--auto-push` to skip the prompt.
+~~~toml
+main_provider = "opencode_cli"
+fallback_provider = "gemini"
 
-## Customization
+[providers.opencode_cli]
+model = "PROVIDER/MODEL"
 
-* **See all options:** Run `yawn --generate-config` to see a commented default configuration file (`.yawn.toml`).
-* **Common tweaks:**
-  * `prompt`: Rewrite the instructions for the AI.
-  * `gemini_model`: Change the Gemini model (default: `gemini-flash-latest`; falls back to `gemini-flash-lite-latest` on failure).
-  * `request_timeout_seconds`: API request timeout in seconds (default: `15`).
-  * `auto_stage`: Set to `true` to always stage automatically.
-  * `auto_push`: Set to `true` to always push after commit.
-  * `push_command`: Change how `yawn` pushes (e.g., `git push --no-verify origin HEAD`).
-  * `squash_auto_push`: Set to `true` to automatically force-push after `yawn squash`. Defaults to `false`.
-  * `wait_for_ssh_keys`: Set to `true` to make yawn wait until SSH keys are available via `ssh-add -l` before pushing (60-second timeout). Useful for workflows involving tools like KeePassXC where the agent might not have keys immediately. Defaults to `false`.
+[providers.gemini]
+api_key = "YOUR_GOOGLE_AI_STUDIO_KEY"
+model = "gemini-flash-latest"
+~~~
 
-Place your customizations in `./.yawn.toml` (project-specific, also searched in parent directories) or `~/.config/yawn/config.toml` (global), or use `YAWN_*` environment variables.
+Prepare OpenCode once:
 
-### Sensitive file redaction
+~~~sh
+opencode providers login
+opencode models
+~~~
 
-`yawn` never sends content of likely-sensitive or noisy files to the Gemini API. Only a `path: category, +adds -dels` line is included so the model still knows the file changed. Detected categories:
+Configure any fast model your OpenCode account is allowed to use. `yawn` calls OpenCode with `--variant low`, `--no-thinking`, and no output token limit flag.
 
-* **git-crypt** — files with `filter=git-crypt` or `diff=git-crypt` in `.gitattributes` (protects you when the repo is unlocked locally).
-* **encrypted** — `*.ejson`, `*.age`, `*.gpg`, `*.enc`.
-* **lockfile** — `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `Cargo.lock`, `Gemfile.lock`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `composer.lock`, `mix.lock`, `bun.lockb`, `Podfile.lock`.
-* **binary** — anything `git diff` reports as binary (images, archives, etc.).
-* **skipped** — opt-in per file via `.gitattributes`: add a line like `path/to/file yawn=skip` (or just `yawn`).
+## Options
 
-By default, `yawn` generates commit messages following the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification, which provides a standardized format for commit messages. This makes your commit history more readable and enables automated tools to parse your commit messages.
+Common config keys:
 
-## Roadmap
+| Key                       | Meaning                                                                  |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `prompt`                  | Commit-message instructions.                                             |
+| `main_provider`           | Primary AI provider. Default: `gemini`.                                  |
+| `fallback_provider`       | Optional backup provider. Constructed lazily only after primary failure. |
+| `request_timeout_seconds` | AI request timeout. Default: `15`.                                       |
+| `auto_stage`              | Stage changes without prompting.                                         |
+| `auto_push`               | Push after committing without prompting.                                 |
+| `push_command`            | Push command. Default: `git push origin HEAD`.                           |
+| `squash_auto_push`        | Force-push automatically after `yawn squash`.                            |
+| `wait_for_ssh_keys`       | Wait for `ssh-add -l` before pushing.                                    |
 
-* the PR has to be opened to view it
-* Release 1.0.0 when it will be mature enough. homebrew, AUR, else?
+CLI flags:
 
-## CLI Flags (not meant to be used, but just in case)
-
-| Flag                | Description                            |
+| Flag                | Meaning                                |
 | ------------------- | -------------------------------------- |
-| `--api-key`         | Override Gemini API key                |
-| `--auto-stage`      | Stage all changes without prompting    |
-| `--auto-push`       | Push after commit without prompting    |
-| `--generate-config` | Print default config template and exit |
-| `--version`         | Print version and exit                 |
+| `--api-key`         | Override the primary provider API key. |
+| `--auto-stage`      | Stage all changes without prompting.   |
+| `--auto-push`       | Push after commit without prompting.   |
+| `--generate-config` | Print the default config template.     |
+| `--version`         | Print version information.             |
+
+## Safety
+
+`yawn` redacts likely-sensitive or noisy file contents before sending diffs to the AI provider. It sends only `path: category, +adds -dels` for git-crypt files, encrypted files, lockfiles, binary files, and files marked with `.gitattributes` `yawn=skip`.
+
+HTTPS remotes can be converted to SSH, pushes use retries with per-attempt timeouts, and force-pushes show a divergence preview before proceeding.
