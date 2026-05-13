@@ -13,10 +13,10 @@ import (
 )
 
 type MockGeminiClient struct {
-	GenerateCommitMessageStreamFunc func(ctx context.Context, systemPrompt, userContent string) (*StreamIterator, error)
+	GenerateCommitMessageStreamFunc func(ctx context.Context, systemPrompt, userContent string) (Stream, error)
 }
 
-func (m *MockGeminiClient) GenerateCommitMessageStream(ctx context.Context, systemPrompt, userContent string) (*StreamIterator, error) {
+func (m *MockGeminiClient) GenerateCommitMessageStream(ctx context.Context, systemPrompt, userContent string) (Stream, error) {
 	if m.GenerateCommitMessageStreamFunc != nil {
 		return m.GenerateCommitMessageStreamFunc(ctx, systemPrompt, userContent)
 	}
@@ -91,7 +91,7 @@ func TestIsTransientError(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"plain error", fmt.Errorf("something failed"), false},
-		{"context deadline", context.DeadlineExceeded, false},
+		{"context deadline", context.DeadlineExceeded, true},
 		{"grpc unavailable", status.Error(codes.Unavailable, "high demand"), true},
 		{"grpc deadline exceeded", status.Error(codes.DeadlineExceeded, "deadline expired"), true},
 		{"grpc wrapped unavailable", fmt.Errorf("stream: %w", status.Error(codes.Unavailable, "high demand")), true},
@@ -99,6 +99,11 @@ func TestIsTransientError(t *testing.T) {
 		{"googleapi 503", &googleapi.Error{Code: 503}, true},
 		{"googleapi 504", &googleapi.Error{Code: 504}, true},
 		{"googleapi 500", &googleapi.Error{Code: 500}, false},
+		{"genai 503", genai.APIError{Code: 503}, true},
+		{"genai 504", genai.APIError{Code: 504}, true},
+		{"genai pointer 503", &genai.APIError{Code: 503}, true},
+		{"genai wrapped 503", fmt.Errorf("stream: %w", genai.APIError{Code: 503}), true},
+		{"genai 500", genai.APIError{Code: 500}, false},
 	}
 
 	for _, tt := range tests {
@@ -106,4 +111,18 @@ func TestIsTransientError(t *testing.T) {
 			assert.Equal(t, tt.expected, IsTransientError(tt.err))
 		})
 	}
+}
+
+func TestStreamIteratorReturnsContextErrorWhenClosed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	<-ctx.Done()
+
+	ch := make(chan streamResult)
+	close(ch)
+
+	iter := &StreamIterator{ch: ch, ctx: ctx}
+	_, err := iter.Next()
+
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }

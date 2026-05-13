@@ -17,9 +17,20 @@ func IsTransientError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
 	var apiErr *googleapi.Error
 	if errors.As(err, &apiErr) {
 		return apiErr.Code == 503 || apiErr.Code == 504
+	}
+	var genaiAPIErr genai.APIError
+	if errors.As(err, &genaiAPIErr) {
+		return genaiAPIErr.Code == 503 || genaiAPIErr.Code == 504
+	}
+	var genaiAPIErrPtr *genai.APIError
+	if errors.As(err, &genaiAPIErrPtr) {
+		return genaiAPIErrPtr.Code == 503 || genaiAPIErrPtr.Code == 504
 	}
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		if c := status.Code(e); c == codes.Unavailable || c == codes.DeadlineExceeded {
@@ -39,6 +50,11 @@ type streamResult struct {
 type StreamIterator struct {
 	ch      <-chan streamResult
 	pending *streamResult
+	ctx     context.Context
+}
+
+type Stream interface {
+	Collect(onChunk func(string)) (string, error)
 }
 
 func (s *StreamIterator) Next() (*genai.GenerateContentResponse, error) {
@@ -52,6 +68,9 @@ func (s *StreamIterator) Next() (*genai.GenerateContentResponse, error) {
 	}
 	result, ok := <-s.ch
 	if !ok {
+		if s.ctx != nil && s.ctx.Err() != nil {
+			return nil, s.ctx.Err()
+		}
 		return nil, iterator.Done
 	}
 	if result.err != nil {
@@ -78,7 +97,7 @@ func (s *StreamIterator) Collect(onChunk func(string)) (string, error) {
 }
 
 type Client interface {
-	GenerateCommitMessageStream(ctx context.Context, systemPrompt, userContent string) (*StreamIterator, error)
+	GenerateCommitMessageStream(ctx context.Context, systemPrompt, userContent string) (Stream, error)
 }
 
 type GenaiClient struct {
@@ -150,18 +169,18 @@ func (c *GenaiClient) generateStreamWithModel(ctx context.Context, modelName, sy
 	select {
 	case first, ok := <-ch:
 		if !ok {
-			return &StreamIterator{ch: ch}, nil
+			return &StreamIterator{ch: ch, ctx: ctx}, nil
 		}
 		if first.err != nil {
 			return nil, first.err
 		}
-		return &StreamIterator{ch: ch, pending: &first}, nil
+		return &StreamIterator{ch: ch, pending: &first, ctx: ctx}, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-func (c *GenaiClient) GenerateCommitMessageStream(ctx context.Context, systemPrompt, userContent string) (*StreamIterator, error) {
+func (c *GenaiClient) GenerateCommitMessageStream(ctx context.Context, systemPrompt, userContent string) (Stream, error) {
 	iter, err := c.generateStreamWithModel(ctx, c.model, systemPrompt, userContent)
 	if err != nil {
 		iter, err = c.generateStreamWithModel(ctx, FallbackModel, systemPrompt, userContent)
