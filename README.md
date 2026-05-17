@@ -5,21 +5,49 @@
 [![CI](https://github.com/Mayurifag/yawn/actions/workflows/ci.yml/badge.svg)](https://github.com/Mayurifag/yawn/actions/workflows/ci.yml)
 [![Release](https://github.com/Mayurifag/yawn/actions/workflows/release.yml/badge.svg)](https://github.com/Mayurifag/yawn/actions/workflows/release.yml)
 
-AI-assisted Git commits, squashes, and pushes in a single binary.
+Writing Git commit messages is small work, but it breaks flow.
 
-`yawn` stages changes, writes Conventional Commit messages from your diff, commits, pushes, prints PR links, squashes branches, and makes force-pushes harder to regret.
+`yawn` turns the end of a coding session into one command: stage the diff, ask AI for a Conventional Commit message, commit, push, and print the PR link.
 
-## Why
+## Why install it?
 
-Writing commit messages is small work that still breaks flow. `yawn` compresses the usual Git loop into one command: stage, describe, commit, push, and show the next PR link.
+Because this is annoying:
 
-It is tuned for fast personal workflows:
+~~~sh
+git add .
+git diff --cached
+git commit -m "fix: something probably"
+git push origin HEAD
+open the repo
+find the branch
+open the PR page
+~~~
 
-- Conventional Commit messages based on the actual diff.
-- One-command branch cleanup via `yawn squash`.
-- Optional auto-stage and auto-push for trusted repos.
-- Global and per-project config.
-- SSH remote nudges, push retries, and force-push previews.
+This is less annoying: `q` (alias from `yawn`). Imagine effort you save every 
+day compounded.
+
+`yawn` is for people who like clean commit history but do not want to name every small diff by hand.
+
+It handles the common Git chores:
+
+- writes commit messages from the actual diff
+- stages files when you let it
+- pushes when you let it
+- prints GitHub or GitLab PR links after push
+- squashes a branch into one AI-named commit
+- previews force-push divergence before pushing
+- redacts secrets, lockfiles, binaries, and skipped paths before asking AI
+- reads global config, project config, env vars, and CLI flags
+
+It also handles the little workflow annoyances:
+
+- waits for SSH keys so you can unlock KeePassXC instead of racing `git push`
+- nudges HTTPS remotes toward SSH
+- retries flaky pushes with per-attempt timeouts
+- shows unpushed commits when there is nothing new to commit
+- asks what to do with dirty files before squashing
+
+It is a single Go binary. No daemon, no editor plugin, no extra service to keep alive.
 
 ## Install
 
@@ -27,7 +55,7 @@ It is tuned for fast personal workflows:
 mise use -g github:Mayurifag/yawn@latest
 ~~~
 
-Or download a release binary, put it on `PATH`, and make it executable.
+Or download a release binary, put it somewhere on `PATH`, and make it executable.
 
 From source:
 
@@ -38,10 +66,17 @@ make install
 Generate a config:
 
 ~~~sh
+mkdir -p ~/.config/yawn
 yawn --generate-config > ~/.config/yawn/config.toml
 ~~~
 
-After setup, aliases make it feel native:
+Add a provider, then try it in a repo with changes:
+
+~~~sh
+yawn
+~~~
+
+Useful aliases:
 
 ~~~sh
 alias q="yawn"
@@ -57,11 +92,13 @@ alias gpf="yawn force-push"
 | `yawn squash`     | Squash branch commits since `main`, `master`, or `dev` into one AI-generated commit. |
 | `yawn force-push` | Show divergence, ask for confirmation, then run a safer force push.                  |
 
+If there are no local changes but unpushed commits exist, `yawn` lists them and offers to push. After a successful push from a non-default branch, it prints a PR creation link.
+
 ## Configuration
 
 Config is read from `~/.config/yawn/config.toml`, then project `.yawn.toml` files, environment variables, and CLI flags. Later sources win.
 
-Supported providers are intentionally small. `gemini` and `opencode_cli` were chosen because they work well with fast free-tier or low-cost models and keep `yawn` out of provider-specific account complexity.
+Supported providers are intentionally small:
 
 | Provider       | Auth                     | Notes                                         |
 | -------------- | ------------------------ | --------------------------------------------- |
@@ -101,9 +138,7 @@ opencode models
 
 Configure any fast model your OpenCode account is allowed to use. `yawn` calls OpenCode with `--variant low`, `--no-thinking`, and no output token limit flag.
 
-## Options
-
-Common config keys:
+## Common Options
 
 | Key                       | Meaning                                                                  |
 | ------------------------- | ------------------------------------------------------------------------ |
@@ -132,3 +167,5 @@ CLI flags:
 `yawn` redacts likely-sensitive or noisy file contents before sending diffs to the AI provider. It sends only `path: category, +adds -dels` for git-crypt files, encrypted files, lockfiles, binary files, and files marked with `.gitattributes` `yawn=skip`.
 
 HTTPS remotes can be converted to SSH, pushes use retries with per-attempt timeouts, and force-pushes show a divergence preview before proceeding.
+
+It still lets you do dangerous Git things. It just makes you look first.
