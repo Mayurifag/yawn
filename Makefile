@@ -43,8 +43,22 @@ install: ci
 # Install latest release via mise
 install-release:
 	@echo "==> Installing latest release of yawn via mise..."
-	mise cache clear
-	mise use -g github:Mayurifag/yawn@latest
+	@set -e; \
+	current_tag=$$(git describe --tags --abbrev=0 2>/dev/null); \
+	if [ -z "$$current_tag" ]; then \
+		echo "Error: no release tag found"; \
+		exit 1; \
+	fi; \
+	version=$${current_tag#v}; \
+	config_file=$$(chezmoi source-path "$(HOME)/.config/mise/config.toml"); \
+	if [ ! -f "$$config_file" ]; then \
+		echo "Error: $$config_file not found"; \
+		exit 1; \
+	fi; \
+	perl -0pi -e 's/("github:Mayurifag\/yawn"\s*=\s*")[^"]+(")/$${1}'"$$version"'$${2}/' "$$config_file"; \
+	chezmoi apply "$(HOME)/.config/mise/config.toml"; \
+	mise cache clear; \
+	mise install github:Mayurifag/yawn@$$version
 	@"$(MAKE)" --no-print-directory uninstall
 
 # Uninstall the application from GOBIN
@@ -89,14 +103,21 @@ _create_tag:
 # Release - bump version and push new tag
 release:
 	@echo "==> Creating new release..."
-	@current_tag=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
+	@set -e; \
+	current_tag=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
 	major=$$(echo $$current_tag | cut -d. -f1 | tr -d v); \
 	minor=$$(echo $$current_tag | cut -d. -f2); \
 	patch=$$(echo $$current_tag | cut -d. -f3); \
 	patch=$$((patch + 1)); \
 	new_tag="v$$major.$$minor.$$patch"; \
 	echo "Current tag: $$current_tag, New tag: $$new_tag"; \
-	"$(MAKE)" _create_tag TAG=$$new_tag
+	"$(MAKE)" _create_tag TAG=$$new_tag; \
+	printf "Run make install-release now? [y/N] "; \
+	read answer || answer=; \
+	case "$$answer" in \
+		[Yy]|[Yy][Ee][Ss]) "$(MAKE)" install-release ;; \
+		*) echo "Skipping install-release." ;; \
+	esac
 
 # Re-release - remove previous tag and create new release
 rerelease:
