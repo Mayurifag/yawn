@@ -7,7 +7,8 @@
 
 Writing Git commit messages is small work, but it breaks flow.
 
-`yawn` turns the end of a coding session into one command: stage the diff, ask AI for a Conventional Commit message, commit, push, and print the PR link.
+`yawn` turns the end of a coding session into one command: stage the diff, ask 
+**FREE** AI for a commit message, commit, push, and print the PR link.
 
 ## Why install it?
 
@@ -26,9 +27,7 @@ open the PR page
 This is less annoying: `q` (alias from `yawn`). Imagine effort you save every 
 day compounded.
 
-`yawn` is for people who like clean commit history but do not want to name every small diff by hand.
-
-It handles the common Git chores:
+`yawn` handles the common Git chores:
 
 - writes commit messages from the actual diff
 - stages files when you let it
@@ -47,7 +46,8 @@ It also handles the little workflow annoyances:
 - shows unpushed commits when there is nothing new to commit
 - asks what to do with dirty files before squashing
 
-It is a single Go binary. No daemon, no editor plugin, no extra service to keep alive.
+It is a single Go binary. No daemon, no editor plugin, no extra service to keep 
+alive.
 
 ## Install
 
@@ -98,14 +98,7 @@ If there are no local changes but unpushed commits exist, `yawn` lists them and 
 
 Config is read from `~/.config/yawn/config.toml`, then project `.yawn.toml` files, environment variables, and CLI flags. Later sources win.
 
-Supported providers are intentionally small:
-
-| Provider       | Auth                     | Notes                                         |
-| -------------- | ------------------------ | --------------------------------------------- |
-| `gemini`       | Google AI Studio API key | Default direct API provider.                  |
-| `opencode_cli` | Local OpenCode login     | Uses models available in your OpenCode setup. |
-
-### Gemini
+Default setup uses Gemini:
 
 ~~~toml
 main_provider = "gemini"
@@ -115,7 +108,7 @@ api_key = "YOUR_GOOGLE_AI_STUDIO_KEY"
 model = "gemini-flash-latest"
 ~~~
 
-### OpenCode CLI
+Or use your local OpenCode login:
 
 ~~~toml
 main_provider = "opencode_cli"
@@ -129,38 +122,9 @@ api_key = "YOUR_GOOGLE_AI_STUDIO_KEY"
 model = "gemini-flash-latest"
 ~~~
 
-Prepare OpenCode once:
+Prepare OpenCode once with `opencode providers login` and `opencode models`.
 
-~~~sh
-opencode providers login
-opencode models
-~~~
-
-Configure any fast model your OpenCode account is allowed to use. `yawn` calls OpenCode with `--variant low`, `--no-thinking`, and no output token limit flag.
-
-## Common Options
-
-| Key                       | Meaning                                                                  |
-| ------------------------- | ------------------------------------------------------------------------ |
-| `prompt`                  | Commit-message instructions.                                             |
-| `main_provider`           | Primary AI provider. Default: `gemini`.                                  |
-| `fallback_provider`       | Optional backup provider. Constructed lazily only after primary failure. |
-| `request_timeout_seconds` | AI request timeout. Default: `15`.                                       |
-| `auto_stage`              | Stage changes without prompting.                                         |
-| `auto_push`               | Push after committing without prompting.                                 |
-| `push_command`            | Push command. Default: `git push origin HEAD`.                           |
-| `squash_auto_push`        | Force-push automatically after `yawn squash`.                            |
-| `wait_for_ssh_keys`       | Wait for `ssh-add -l` before pushing.                                    |
-
-CLI flags:
-
-| Flag                | Meaning                                |
-| ------------------- | -------------------------------------- |
-| `--api-key`         | Override the primary provider API key. |
-| `--auto-stage`      | Stage all changes without prompting.   |
-| `--auto-push`       | Push after commit without prompting.   |
-| `--generate-config` | Print the default config template.     |
-| `--version`         | Print version information.             |
+For every option, run `yawn --generate-config` or see [configuration reference](docs/configuration.md).
 
 ## Safety
 
