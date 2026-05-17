@@ -15,6 +15,7 @@ import (
 const (
 	NetworkPushTimeout = 60 * time.Second
 	PRLookupTimeout    = 10 * time.Second
+	MaxDiffBytes       = 120000
 )
 
 var ErrNetworkTimeout = errors.New("git network operation timed out")
@@ -186,30 +187,40 @@ func (c *ExecGitClient) buildFilteredDiff(numstatOutput string, diffBaseArgs []s
 	}
 	attrs, _ := c.checkAttrs([]string{"filter", "diff", "yawn"}, paths)
 
-	var normalFiles []string
+	var normal []numstatEntry
 	var redacted []classifiedFile
 	for _, e := range entries {
 		cat := classifyEntry(e, attrs[e.path])
 		if cat == catNormal {
-			normalFiles = append(normalFiles, e.path)
+			normal = append(normal, e)
 			continue
 		}
 		redacted = append(redacted, classifiedFile{entry: e, category: cat})
 	}
 
 	var b strings.Builder
-	if len(normalFiles) > 0 {
+	for i, e := range normal {
 		args := append([]string{}, diffBaseArgs...)
 		args = append(args, "--")
-		args = append(args, normalFiles...)
+		args = append(args, e.path)
 		out, err := c.runGitCommand(args...)
 		if err != nil {
 			if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
-				b.WriteString(gitErr.Output)
+				out = gitErr.Output
+			} else {
+				continue
 			}
-		} else {
-			b.WriteString(out)
 		}
+		if b.Len() > 0 && out != "" {
+			out = "\n\n" + out
+		}
+		if writeLimited(&b, out, MaxDiffBytes) {
+			continue
+		}
+		for _, omitted := range normal[i:] {
+			redacted = append(redacted, classifiedFile{entry: omitted, category: catLarge})
+		}
+		break
 	}
 	if summary := formatRedactedSummary(redacted); summary != "" {
 		if b.Len() > 0 {
@@ -218,6 +229,22 @@ func (c *ExecGitClient) buildFilteredDiff(numstatOutput string, diffBaseArgs []s
 		b.WriteString(summary)
 	}
 	return b.String()
+}
+
+func writeLimited(b *strings.Builder, s string, limit int) bool {
+	if s == "" {
+		return true
+	}
+	remaining := limit - b.Len()
+	if remaining <= 0 {
+		return false
+	}
+	if len(s) <= remaining {
+		b.WriteString(s)
+		return true
+	}
+	b.WriteString(s[:remaining])
+	return false
 }
 
 func (c *ExecGitClient) StageChanges() error {

@@ -15,6 +15,7 @@ const (
 	catGitCrypt
 	catEncrypted
 	catSkipped
+	catLarge
 )
 
 func (c fileCategory) label() string {
@@ -29,6 +30,8 @@ func (c fileCategory) label() string {
 		return "encrypted"
 	case catSkipped:
 		return "skipped"
+	case catLarge:
+		return "large diff omitted"
 	}
 	return "normal"
 }

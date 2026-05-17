@@ -132,6 +132,7 @@ func TestFormatRedactedSummary(t *testing.T) {
 		{entry: numstatEntry{path: "img.png", binary: true}, category: catBinary},
 		{entry: numstatEntry{path: "secrets.ejson", additions: "2", deletions: "1"}, category: catEncrypted},
 		{entry: numstatEntry{path: "vault/key.txt", additions: "3", deletions: "0"}, category: catGitCrypt},
+		{entry: numstatEntry{path: "big.txt", additions: "99999", deletions: "0"}, category: catLarge},
 	}
 	got := formatRedactedSummary(redacted)
 
@@ -140,6 +141,7 @@ func TestFormatRedactedSummary(t *testing.T) {
 	assert.Contains(t, got, "img.png: binary, binary")
 	assert.Contains(t, got, "secrets.ejson: encrypted, +2 -1")
 	assert.Contains(t, got, "vault/key.txt: git-crypt, +3 -0")
+	assert.Contains(t, got, "big.txt: large diff omitted, +99999 -0")
 }
 
 func TestFormatRedactedSummary_Empty(t *testing.T) {

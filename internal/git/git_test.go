@@ -343,6 +343,30 @@ exit 1
 	assert.Equal(t, "https://github.com/owner/repo/pull/20", url)
 }
 
+func TestExecGitClient_GetDiffSummarizesOverBudgetFiles(t *testing.T) {
+	repoPath := t.TempDir()
+	runGitTestCommand(t, repoPath, "init")
+	runGitTestCommand(t, repoPath, "config", "user.email", "test@example.com")
+	runGitTestCommand(t, repoPath, "config", "user.name", "Test User")
+
+	big := strings.Repeat("a\n", MaxDiffBytes)
+	if err := os.WriteFile(filepath.Join(repoPath, "big.txt"), []byte(big), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "small.txt"), []byte("small\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGitTestCommand(t, repoPath, "add", ".")
+
+	client := &ExecGitClient{RepoPath: repoPath}
+	diff, err := client.GetDiff()
+
+	assert.NoError(t, err)
+	assert.Contains(t, diff, "large diff omitted")
+	assert.Contains(t, diff, "big.txt")
+	assert.Contains(t, diff, "small.txt")
+}
+
 func TestExecGitClient_GetPullRequestURLChecksGHAuthBeforePRLookup(t *testing.T) {
 	repoPath := t.TempDir()
 	runGitTestCommand(t, repoPath, "init")
