@@ -128,6 +128,28 @@ func TestMockGitClient_GetDiffNumStatSummary(t *testing.T) {
 	})
 }
 
+func TestRepositoryRoot(t *testing.T) {
+	repoPath := t.TempDir()
+	runGitTestCommand(t, repoPath, "init")
+	subdir := filepath.Join(repoPath, "subdir")
+	assert.NoError(t, os.Mkdir(subdir, 0755))
+	t.Chdir(subdir)
+
+	root, err := RepositoryRoot()
+
+	assert.NoError(t, err)
+	assert.Equal(t, repoPath, root)
+}
+
+func TestRepositoryRootOutsideGitRepository(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	root, err := RepositoryRoot()
+
+	assert.Empty(t, root)
+	assert.ErrorIs(t, err, ErrNotRepository)
+}
+
 func TestHasUnstagedChanges(t *testing.T) {
 	tests := []struct {
 		name          string

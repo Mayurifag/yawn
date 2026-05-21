@@ -18,7 +18,10 @@ const (
 	MaxDiffBytes       = 120000
 )
 
-var ErrNetworkTimeout = errors.New("git network operation timed out")
+var (
+	ErrNetworkTimeout = errors.New("git network operation timed out")
+	ErrNotRepository  = errors.New("not a git repository: run yawn from inside a git work tree")
+)
 
 type GitClient interface {
 	HasStagedChanges() (bool, error)
@@ -57,14 +60,33 @@ type ExecGitClient struct {
 }
 
 func NewExecGitClient() (*ExecGitClient, error) {
+	repoPath, err := RepositoryRoot()
+	if err != nil {
+		return nil, err
+	}
+	return &ExecGitClient{RepoPath: repoPath}, nil
+}
+
+func RepositoryRoot() (string, error) {
+	insideCmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	insideOutput, err := insideCmd.CombinedOutput()
+	if err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return "", ErrNotRepository
+		}
+		return "", fmt.Errorf("failed to check git repository: %w", err)
+	}
+	if strings.TrimSpace(string(insideOutput)) != "true" {
+		return "", ErrNotRepository
+	}
+
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to find git repository root: %w. Are you in a git repository?", err)
+		return "", fmt.Errorf("failed to find git repository root: %w", err)
 	}
-	repoPath := strings.TrimSpace(out.String())
-	return &ExecGitClient{RepoPath: repoPath}, nil
+	return strings.TrimSpace(out.String()), nil
 }
 
 type GitError struct {

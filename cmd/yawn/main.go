@@ -55,6 +55,12 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 
+		gitClient, err := git.NewExecGitClient()
+		if err != nil {
+			ui.PrintError(err.Error())
+			return err
+		}
+
 		flags := config.CLIFlags{}
 		if cmd.Flags().Changed("api-key") {
 			flags.APIKey = &flagAPIKey
@@ -69,12 +75,6 @@ var rootCmd = &cobra.Command{
 		cfg, err := config.LoadConfig(projectPath, flags)
 		if err != nil {
 			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
-			return err
-		}
-
-		gitClient, err := git.NewExecGitClient()
-		if err != nil {
-			ui.PrintError(fmt.Sprintf("Failed to create git client: %v", err))
 			return err
 		}
 
@@ -97,6 +97,12 @@ var forcePushCmd = &cobra.Command{
 			return err
 		}
 
+		gitClient, err := git.NewExecGitClient()
+		if err != nil {
+			ui.PrintError(err.Error())
+			return err
+		}
+
 		flags := config.CLIFlags{}
 		if cmd.Flags().Changed("auto-push") {
 			flags.AutoPush = &flagAutoPush
@@ -105,12 +111,6 @@ var forcePushCmd = &cobra.Command{
 		cfg, err := config.LoadConfig(projectPath, flags)
 		if err != nil {
 			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
-			return err
-		}
-
-		gitClient, err := git.NewExecGitClient()
-		if err != nil {
-			ui.PrintError(fmt.Sprintf("Failed to create git client: %v", err))
 			return err
 		}
 
@@ -133,15 +133,15 @@ var squashCmd = &cobra.Command{
 			return err
 		}
 
-		cfg, err := config.LoadConfig(projectPath, config.CLIFlags{})
+		gitClient, err := git.NewExecGitClient()
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
+			ui.PrintError(err.Error())
 			return err
 		}
 
-		gitClient, err := git.NewExecGitClient()
+		cfg, err := config.LoadConfig(projectPath, config.CLIFlags{})
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Failed to create git client: %v", err))
+			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
 			return err
 		}
 
