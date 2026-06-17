@@ -7,7 +7,7 @@ import (
 )
 
 func (c *ExecGitClient) FindBranchBase(branch string) (string, error) {
-	if base := c.findBranchBaseFromRefs(branch); base != "" {
+	if _, base := c.findBranchBaseFromRefs(branch); base != "" {
 		return base, nil
 	}
 
@@ -26,7 +26,16 @@ func (c *ExecGitClient) FindBranchBase(branch string) (string, error) {
 	return "", fmt.Errorf("cannot determine branch base for %q: no merge-base with default branch and no checkout entry in reflog", branch)
 }
 
-func (c *ExecGitClient) findBranchBaseFromRefs(branch string) string {
+func (c *ExecGitClient) FindBranchBaseRef(branch string) (string, error) {
+	ref, _ := c.findBranchBaseFromRefs(branch)
+	if ref == "" {
+		return "", fmt.Errorf("cannot determine branch base ref for %q", branch)
+	}
+	return strings.TrimPrefix(ref, "origin/"), nil
+}
+
+func (c *ExecGitClient) findBranchBaseFromRefs(branch string) (string, string) {
+	bestRef := ""
 	bestBase := ""
 	bestDistance := -1
 	for _, ref := range c.branchBaseCandidateRefs(branch) {
@@ -36,11 +45,12 @@ func (c *ExecGitClient) findBranchBaseFromRefs(branch string) string {
 			continue
 		}
 		if bestDistance == -1 || distance < bestDistance {
+			bestRef = ref
 			bestBase = base
 			bestDistance = distance
 		}
 	}
-	return bestBase
+	return bestRef, bestBase
 }
 
 func (c *ExecGitClient) mergeBase(ref string) string {

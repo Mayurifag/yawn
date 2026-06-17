@@ -41,6 +41,26 @@ func TestExecGitClient_FindBranchBaseUsesOriginMasterMergeBase(t *testing.T) {
 	assert.Equal(t, base, got)
 }
 
+func TestExecGitClient_FindBranchBaseRefUsesClosestBranch(t *testing.T) {
+	repo := newTestRepo(t)
+	runTestGit(t, repo, "checkout", "-b", "beta")
+	writeTestFile(t, repo, "beta.txt", "beta\n")
+	runTestGit(t, repo, "add", "beta.txt")
+	runTestGit(t, repo, "commit", "-m", "beta")
+	runTestGit(t, repo, "update-ref", "refs/remotes/origin/beta", "HEAD")
+	runTestGit(t, repo, "checkout", "-b", "opencode")
+	writeTestFile(t, repo, "feature.txt", "feature\n")
+	runTestGit(t, repo, "add", "feature.txt")
+	runTestGit(t, repo, "commit", "-m", "feature")
+
+	client := &ExecGitClient{RepoPath: repo}
+
+	got, err := client.FindBranchBaseRef("opencode")
+
+	require.NoError(t, err)
+	assert.Equal(t, "beta", got)
+}
+
 func TestExecGitClient_GetDiffCachedRangeIncludesStagedChanges(t *testing.T) {
 	repo := newTestRepo(t)
 	base := runTestGit(t, repo, "rev-parse", "HEAD")

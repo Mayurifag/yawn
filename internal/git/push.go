@@ -87,14 +87,26 @@ func normalizeBranchName(branch string) string {
 	return strings.TrimPrefix(branch, "heads/")
 }
 
-func GeneratePRURL(host, owner, repo, branch string) string {
+func GeneratePRURL(gitClient GitClient, host, owner, repo, branch string) string {
 	branch = normalizeBranchName(branch)
 	if host == "" || owner == "" || repo == "" || branch == "" || defaultBranches[branch] {
 		return ""
 	}
+	baseBranch, _ := gitClient.FindBranchBaseRef(branch)
+	baseBranch = normalizeBranchName(strings.TrimSpace(baseBranch))
+	if baseBranch == branch {
+		return ""
+	}
 	if strings.Contains(host, "gitlab") {
-		return fmt.Sprintf("https://%s/%s/%s/-/merge_requests/new?merge_request%%5Bsource_branch%%5D=%s",
-			host, owner, repo, url.QueryEscape(branch))
+		values := url.Values{}
+		values.Set("merge_request[source_branch]", branch)
+		if baseBranch != "" {
+			values.Set("merge_request[target_branch]", baseBranch)
+		}
+		return fmt.Sprintf("https://%s/%s/%s/-/merge_requests/new?%s", host, owner, repo, values.Encode())
+	}
+	if baseBranch != "" {
+		return fmt.Sprintf("https://%s/%s/%s/compare/%s...%s?expand=1", host, owner, repo, baseBranch, branch)
 	}
 	return fmt.Sprintf("https://%s/%s/%s/compare/%s?expand=1", host, owner, repo, branch)
 }
@@ -160,7 +172,7 @@ func (p *Pusher) ExecutePush(command string) (*PushResult, error) {
 						if prLink := FindPullRequestURL(p.gitClient, remoteInfo.Host, branch); prLink != "" {
 							result.PRLink = prLink
 						} else {
-							result.SuggestPRLink = GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+							result.SuggestPRLink = GeneratePRURL(p.gitClient, remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
 						}
 					}
 				}

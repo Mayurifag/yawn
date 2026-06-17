@@ -136,9 +136,11 @@ func TestRepositoryRoot(t *testing.T) {
 	t.Chdir(subdir)
 
 	root, err := RepositoryRoot()
+	expectedRoot, symlinkErr := filepath.EvalSymlinks(repoPath)
 
 	assert.NoError(t, err)
-	assert.Equal(t, repoPath, root)
+	assert.NoError(t, symlinkErr)
+	assert.Equal(t, expectedRoot, root)
 }
 
 func TestRepositoryRootOutsideGitRepository(t *testing.T) {

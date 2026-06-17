@@ -75,7 +75,7 @@ func (a *App) printSquashLinks() {
 		if branch != defaultBranch {
 			prLink = git.FindPullRequestURL(a.GitClient, remoteInfo.Host, branch)
 			if prLink == "" {
-				suggestPRLink = git.GeneratePRURL(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
+				suggestPRLink = git.GeneratePRURL(a.GitClient, remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
 			}
 		}
 	}

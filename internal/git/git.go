@@ -39,6 +39,7 @@ type GitClient interface {
 	GetLastCommitHash() (string, error)
 	GetDiffNumStatSummary() (additions int, deletions int, err error)
 	FindBranchBase(branch string) (string, error)
+	FindBranchBaseRef(branch string) (string, error)
 	GetCommitCountRange(base string) (int, error)
 	GetDiffRange(base string) (string, error)
 	GetDiffCachedRange(base string) (string, error)

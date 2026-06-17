@@ -193,6 +193,7 @@ func TestGeneratePRURL(t *testing.T) {
 		owner    string
 		repo     string
 		branch   string
+		base     string
 		expected string
 	}{
 		{
@@ -202,6 +203,15 @@ func TestGeneratePRURL(t *testing.T) {
 			repo:     "repo",
 			branch:   "feature/my-feature",
 			expected: "https://github.com/owner/repo/compare/feature/my-feature?expand=1",
+		},
+		{
+			name:     "GitHub feature branch with base",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "feature/my-feature",
+			base:     "beta",
+			expected: "https://github.com/owner/repo/compare/beta...feature/my-feature?expand=1",
 		},
 		{
 			name:     "GitHub branch with heads prefix",
@@ -220,12 +230,30 @@ func TestGeneratePRURL(t *testing.T) {
 			expected: "https://github.com/owner/repo/compare/opencode?expand=1",
 		},
 		{
+			name:     "GitHub branch with prefixed base",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "heads/opencode",
+			base:     "refs/heads/beta",
+			expected: "https://github.com/owner/repo/compare/beta...opencode?expand=1",
+		},
+		{
 			name:     "GitLab feature branch",
 			host:     "gitlab.com",
 			owner:    "owner",
 			repo:     "repo",
 			branch:   "feature/my-feature",
 			expected: "https://gitlab.com/owner/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature%2Fmy-feature",
+		},
+		{
+			name:     "GitLab feature branch with base",
+			host:     "gitlab.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "feature/my-feature",
+			base:     "beta",
+			expected: "https://gitlab.com/owner/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D=feature%2Fmy-feature&merge_request%5Btarget_branch%5D=beta",
 		},
 		{
 			name:     "Gitea custom host",
@@ -268,6 +296,15 @@ func TestGeneratePRURL(t *testing.T) {
 			expected: "",
 		},
 		{
+			name:     "base equal branch returns empty",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "beta",
+			base:     "beta",
+			expected: "",
+		},
+		{
 			name:     "empty host returns empty",
 			host:     "",
 			owner:    "owner",
@@ -287,7 +324,12 @@ func TestGeneratePRURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GeneratePRURL(tt.host, tt.owner, tt.repo, tt.branch)
+			client := &MockGitClient{
+				MockFindBranchBaseRef: func(branch string) (string, error) {
+					return tt.base, nil
+				},
+			}
+			result := GeneratePRURL(client, tt.host, tt.owner, tt.repo, tt.branch)
 			if result != tt.expected {
 				t.Errorf("GeneratePRURL() = %q, expected %q", result, tt.expected)
 			}

@@ -92,7 +92,7 @@ alias gpf="yawn force-push"
 | `yawn squash`     | Squash branch commits since `main`, `master`, or `dev` into one AI-generated commit. |
 | `yawn force-push` | Show divergence, ask for confirmation, then run a safer force push.                  |
 
-If there are no local changes but unpushed commits exist, `yawn` lists them and offers to push. After a successful push from a non-default branch, it prints a PR creation link.
+If there are no local changes but unpushed commits exist, `yawn` lists them and offers to push. After a successful push from a non-default branch, it prints a PR creation link using the branch base detected from Git.
 
 ## Configuration
 

@@ -16,6 +16,7 @@ type MockGitClient struct {
 	MockGetLastCommitHash         func() (string, error)
 	MockGetDiffNumStatSummary     func() (additions int, deletions int, err error)
 	MockFindBranchBase            func(branch string) (string, error)
+	MockFindBranchBaseRef         func(branch string) (string, error)
 	MockGetCommitCountRange       func(base string) (int, error)
 	MockGetDiffRange              func(base string) (string, error)
 	MockGetDiffCachedRange        func(base string) (string, error)
@@ -135,6 +136,13 @@ func (m *MockGitClient) FindBranchBase(branch string) (string, error) {
 		return m.MockFindBranchBase(branch)
 	}
 	return "abc123", nil
+}
+
+func (m *MockGitClient) FindBranchBaseRef(branch string) (string, error) {
+	if m.MockFindBranchBaseRef != nil {
+		return m.MockFindBranchBaseRef(branch)
+	}
+	return "", nil
 }
 
 func (m *MockGitClient) GetCommitCountRange(base string) (int, error) {
