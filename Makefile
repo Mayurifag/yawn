@@ -16,6 +16,8 @@ override GOBIN := $(shell cygpath -u '$(GOBIN)' 2>/dev/null || echo '$(GOBIN)')
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
+RELEASE_WAIT_SECONDS ?= 600
+RELEASE_WAIT_INTERVAL ?= 10
 
 # Go commands
 GO := go
@@ -44,12 +46,22 @@ install: ci
 install-release:
 	@echo "==> Installing latest release of yawn via mise..."
 	@set -e; \
-	current_tag=$$(git describe --tags --abbrev=0 2>/dev/null); \
+	current_tag=$$(git describe --tags --abbrev=0 2>/dev/null || true); \
 	if [ -z "$$current_tag" ]; then \
 		echo "Error: no release tag found"; \
 		exit 1; \
 	fi; \
 	version=$${current_tag#v}; \
+	elapsed=0; \
+	echo "==> Waiting for GitHub release assets for $$current_tag..."; \
+	until curl -fsSL "https://api.github.com/repos/Mayurifag/yawn/releases/tags/$$current_tag" | grep -q '"browser_download_url"'; do \
+		if [ $$elapsed -ge $(RELEASE_WAIT_SECONDS) ]; then \
+			echo "Error: release assets for $$current_tag were not available after $(RELEASE_WAIT_SECONDS)s"; \
+			exit 1; \
+		fi; \
+		sleep $(RELEASE_WAIT_INTERVAL); \
+		elapsed=$$((elapsed + $(RELEASE_WAIT_INTERVAL))); \
+	done; \
 	config_file=$$(chezmoi source-path "$(HOME)/.config/mise/config.toml"); \
 	if [ ! -f "$$config_file" ]; then \
 		echo "Error: $$config_file not found"; \
