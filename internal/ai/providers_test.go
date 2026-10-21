@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -45,13 +46,37 @@ func TestOpenCodeCLIArgs(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"run",
-		"--pure",
-		"--model", "openai/gpt-5.3-codex-spark",
-		"--variant", "low",
-		"--no-thinking",
+		"--standalone",
+		"--agent", "yawn",
+		"--model", "openai/gpt-5.3-codex-spark#low",
 		"--format", "json",
 	}, args)
 	assert.NotContains(t, joinedArgs, "token")
+}
+
+func TestOpenCodeCLIArgsPreserveExplicitVariant(t *testing.T) {
+	assert.Contains(t, openCodeCLIArgs("openai/gpt-5.3-codex-spark#high"), "openai/gpt-5.3-codex-spark#high")
+}
+
+func TestOpenCodeCLIConfigDisablesTools(t *testing.T) {
+	var cfg struct {
+		Snapshots bool `json:"snapshots"`
+		Agents    map[string]struct {
+			Permissions []struct {
+				Action   string `json:"action"`
+				Resource string `json:"resource"`
+				Effect   string `json:"effect"`
+			} `json:"permissions"`
+		} `json:"agents"`
+	}
+	assert.NoError(t, json.Unmarshal([]byte(openCodeCLIConfig), &cfg))
+	assert.False(t, cfg.Snapshots)
+	if assert.Len(t, cfg.Agents["yawn"].Permissions, 1) {
+		rule := cfg.Agents["yawn"].Permissions[0]
+		assert.Equal(t, "*", rule.Action)
+		assert.Equal(t, "*", rule.Resource)
+		assert.Equal(t, "deny", rule.Effect)
+	}
 }
 
 func TestOpenCodeCLIPromptKeepsConfiguredPrompt(t *testing.T) {

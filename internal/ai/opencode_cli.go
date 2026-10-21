@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
 
 const openCodeCLILowReasoningVariant = "low"
+
+// A private server applies these permissions without changing the user's service.
+const openCodeCLIConfig = `{"snapshots":false,"agents":{"yawn":{"mode":"primary","system":"Generate only the requested commit message from the supplied diff. Never use tools.","permissions":[{"action":"*","resource":"*","effect":"deny"}]}}}`
 
 type openCodeCLIClient struct {
 	model string
@@ -42,6 +46,7 @@ func newOpenCodeCLIClient(model string) *openCodeCLIClient {
 
 func (c *openCodeCLIClient) GenerateCommitMessageStream(ctx context.Context, systemPrompt, userContent string) (Stream, error) {
 	cmd := exec.CommandContext(ctx, "opencode", openCodeCLIArgs(c.model)...)
+	cmd.Env = append(os.Environ(), "OPENCODE_CONFIG_CONTENT="+openCodeCLIConfig)
 	prompt := openCodeCLIPrompt(systemPrompt, userContent)
 	cmd.Stdin = strings.NewReader(prompt)
 
@@ -99,12 +104,14 @@ func (s *openCodeCLIStream) Collect(onChunk func(string)) (string, error) {
 }
 
 func openCodeCLIArgs(model string) []string {
+	if !strings.Contains(model, "#") {
+		model += "#" + openCodeCLILowReasoningVariant
+	}
 	return []string{
 		"run",
-		"--pure",
+		"--standalone",
+		"--agent", "yawn",
 		"--model", model,
-		"--variant", openCodeCLILowReasoningVariant,
-		"--no-thinking",
 		"--format", "json",
 	}
 }
