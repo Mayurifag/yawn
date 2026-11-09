@@ -38,7 +38,12 @@ func (c *ExecGitClient) findBranchBaseFromRefs(branch string) (string, string) {
 	bestRef := ""
 	bestBase := ""
 	bestDistance := -1
+	seen := make(map[string]bool)
 	for _, ref := range c.branchBaseCandidateRefs(branch) {
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
 		base := c.mergeBase(ref)
 		if base == "" {
 			continue
@@ -71,6 +76,32 @@ func (c *ExecGitClient) mergeBase(ref string) string {
 	return base
 }
 
+func (c *ExecGitClient) branchCreationParent(branch string) string {
+	creation, err := c.runGitCommand("reflog", "show", "-1", "--format=%H %gs", "--grep-reflog=^branch: Created from ", "refs/heads/"+branch)
+	if err != nil {
+		return ""
+	}
+	hash, source, ok := strings.Cut(creation, " branch: Created from ")
+	if !ok {
+		return ""
+	}
+	if source != "HEAD" {
+		return strings.TrimPrefix(strings.TrimPrefix(source, "refs/heads/"), "refs/remotes/")
+	}
+	output, err := c.runGitCommand("reflog", "HEAD", "--format=%H %gs")
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(output, "\n")
+	// Only the creation checkout identifies a parent; later switches can come from siblings.
+	for i := len(lines) - 1; i >= 0; i-- {
+		if source, ok := strings.CutPrefix(lines[i], hash+" checkout: moving from "); ok && strings.HasSuffix(source, " to "+branch) {
+			return strings.TrimSuffix(source, " to "+branch)
+		}
+	}
+	return ""
+}
+
 func (c *ExecGitClient) branchBaseCandidateRefs(branch string) []string {
 	refs := []string{"origin/HEAD"}
 	if defaultBranch, err := c.GetDefaultBranch(); err == nil && defaultBranch != "" {
@@ -82,28 +113,22 @@ func (c *ExecGitClient) branchBaseCandidateRefs(branch string) []string {
 		}
 	}
 	head, _ := c.GetLastCommitHash()
+	parent := c.branchCreationParent(branch)
 	if output, err := c.runGitCommand("for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin", "refs/heads"); err == nil {
 		for _, line := range strings.Split(output, "\n") {
 			ref, tip, ok := strings.Cut(line, " ")
 			if !ok || ref == "origin/HEAD" || ref == branch || ref == "origin/"+branch || tip == head {
 				continue
 			}
-			// Only strict ancestors can be stacked-branch bases, not backups or sibling branches.
-			if _, err := c.runGitCommand("merge-base", "--is-ancestor", ref, "HEAD"); err == nil {
+			if ref == parent || ref == "origin/"+parent {
+				refs = append(refs, ref)
+			} else if _, err := c.runGitCommand("merge-base", "--is-ancestor", ref, "HEAD"); err == nil {
 				refs = append(refs, ref)
 			}
 		}
 	}
 
-	seen := make(map[string]bool, len(refs))
-	var unique []string
-	for _, ref := range refs {
-		if !seen[ref] {
-			seen[ref] = true
-			unique = append(unique, ref)
-		}
-	}
-	return unique
+	return refs
 }
 
 func (c *ExecGitClient) GetCommitCountRange(base string) (int, error) {

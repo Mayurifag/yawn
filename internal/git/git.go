@@ -199,6 +199,18 @@ func (c *ExecGitClient) checkAttrs(attrs []string, files []string) (map[string]m
 	return parseCheckAttrOutput(out), nil
 }
 
+func (c *ExecGitClient) diffFile(path string, paths, diffBaseArgs []string) (string, error) {
+	args := append([]string{"--no-literal-pathspecs"}, diffBaseArgs...)
+	args = append(args, "--", ":(top,literal)"+path)
+	// Even literal pathspecs include descendants during file/directory transitions.
+	for _, other := range paths {
+		if strings.HasPrefix(other, path+"/") {
+			args = append(args, ":(top,exclude,literal)"+other)
+		}
+	}
+	return c.runGitCommand(args...)
+}
+
 func (c *ExecGitClient) buildFilteredDiff(numstatOutput string, diffBaseArgs []string) string {
 	entries := parseNumstatEntries(numstatOutput)
 	if len(entries) == 0 {
@@ -223,10 +235,7 @@ func (c *ExecGitClient) buildFilteredDiff(numstatOutput string, diffBaseArgs []s
 
 	var b strings.Builder
 	for i, e := range normal {
-		args := append([]string{"--literal-pathspecs"}, diffBaseArgs...)
-		args = append(args, "--")
-		args = append(args, e.path)
-		out, err := c.runGitCommand(args...)
+		out, err := c.diffFile(e.path, paths, diffBaseArgs)
 		if err != nil {
 			if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
 				out = gitErr.Output

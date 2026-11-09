@@ -61,6 +61,41 @@ func TestExecGitClient_FindBranchBaseRefUsesClosestBranch(t *testing.T) {
 	assert.Equal(t, "beta", got)
 }
 
+func TestExecGitClient_FindBranchBasePreservesAdvancedParent(t *testing.T) {
+	for _, source := range []string{"HEAD", "beta"} {
+		t.Run(source, func(t *testing.T) {
+			repo := newTestRepo(t)
+			runTestGit(t, repo, "checkout", "-b", "beta")
+			writeTestFile(t, repo, "beta.txt", "beta\n")
+			runTestGit(t, repo, "add", ".")
+			runTestGit(t, repo, "commit", "-m", "beta")
+			base := runTestGit(t, repo, "rev-parse", "HEAD")
+			if source == "beta" {
+				runTestGit(t, repo, "checkout", "master")
+			}
+			runTestGit(t, repo, "checkout", "-b", "feature", source)
+			for _, name := range []string{"one.txt", "two.txt"} {
+				writeTestFile(t, repo, name, name+"\n")
+				runTestGit(t, repo, "add", ".")
+				runTestGit(t, repo, "commit", "-m", name)
+			}
+			runTestGit(t, repo, "checkout", "beta")
+			writeTestFile(t, repo, "later.txt", "later parent work\n")
+			runTestGit(t, repo, "add", ".")
+			runTestGit(t, repo, "commit", "-m", "advance beta")
+			runTestGit(t, repo, "checkout", "feature")
+			client := &ExecGitClient{RepoPath: repo}
+
+			got, err := client.FindBranchBase("feature")
+			require.NoError(t, err)
+			assert.Equal(t, base, got)
+			ref, err := client.FindBranchBaseRef("feature")
+			require.NoError(t, err)
+			assert.Equal(t, "beta", ref)
+		})
+	}
+}
+
 func TestExecGitClient_GetDiffCachedRangeIncludesStagedChanges(t *testing.T) {
 	repo := newTestRepo(t)
 	base := runTestGit(t, repo, "rev-parse", "HEAD")
@@ -114,6 +149,52 @@ func TestExecGitClient_GetDiffUsesLiteralPathspecs(t *testing.T) {
 	check(client.GetDiffCachedRange(base))
 	runTestGit(t, repo, "commit", "-m", "add files")
 	check(client.GetDiffRange(base))
+}
+
+func TestExecGitClient_GetDiffRedactsDirectoryTransitions(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		name := "file-to-directory"
+		if reverse {
+			name = "directory-to-file"
+		}
+		t.Run(name, func(t *testing.T) {
+			repo := newTestRepo(t)
+			writeTestFile(t, repo, ".gitattributes", "data/private.txt yawn=skip\n")
+			writeFile := func() {
+				writeTestFile(t, repo, "data", "public file content\n")
+			}
+			writeDirectory := func() {
+				require.NoError(t, os.Mkdir(filepath.Join(repo, "data"), 0o755))
+				writeTestFile(t, repo, "data/private.txt", "synthetic private content\n")
+				writeTestFile(t, repo, "data/public.txt", "public directory content\n")
+			}
+			before, after := writeFile, writeDirectory
+			if reverse {
+				before, after = after, before
+			}
+			before()
+			runTestGit(t, repo, "add", ".")
+			runTestGit(t, repo, "commit", "-m", "before transition")
+			base := runTestGit(t, repo, "rev-parse", "HEAD")
+			runTestGit(t, repo, "rm", "-r", "data")
+			after()
+			runTestGit(t, repo, "add", ".")
+			client := &ExecGitClient{RepoPath: repo}
+			check := func(diff string, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				assert.Contains(t, diff, "public file content")
+				assert.Contains(t, diff, "public directory content")
+				assert.Contains(t, diff, "data/private.txt: skipped")
+				assert.NotContains(t, diff, "synthetic private content")
+			}
+
+			check(client.GetDiff())
+			check(client.GetDiffCachedRange(base))
+			runTestGit(t, repo, "commit", "-m", "after transition")
+			check(client.GetDiffRange(base))
+		})
+	}
 }
 
 func TestExecGitClient_FindBranchBaseIgnoresNonAncestorBranches(t *testing.T) {
