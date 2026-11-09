@@ -23,8 +23,8 @@ type MockGitClient struct {
 	MockGetDiffNumStatRange       func(base string) (additions int, deletions int, err error)
 	MockGetDiffNumStatCachedRange func(base string) (additions int, deletions int, err error)
 	MockResetSoft                 func(commit string) error
-	MockStash                     func() error
-	MockStashPop                  func() error
+	MockStash                     func() (string, error)
+	MockStashPop                  func(stash string) error
 	MockGetUnpushedCommits        func() ([]string, error)
 	MockGetRemoteOnlyCommits      func() ([]string, error)
 	MockGetDivergenceVsOrigin     func(branch string) ([]string, []string, error)
@@ -187,16 +187,16 @@ func (m *MockGitClient) ResetSoft(commit string) error {
 	return nil
 }
 
-func (m *MockGitClient) Stash() error {
+func (m *MockGitClient) Stash() (string, error) {
 	if m.MockStash != nil {
 		return m.MockStash()
 	}
-	return nil
+	return "", nil
 }
 
-func (m *MockGitClient) StashPop() error {
+func (m *MockGitClient) StashPop(stash string) error {
 	if m.MockStashPop != nil {
-		return m.MockStashPop()
+		return m.MockStashPop(stash)
 	}
 	return nil
 }

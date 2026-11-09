@@ -94,6 +94,114 @@ func TestExecGitClient_AmendCommitUsesMessage(t *testing.T) {
 	assert.Equal(t, "feat: generated title\n\nGenerated body", runTestGit(t, repo, "log", "-1", "--format=%B"))
 }
 
+func TestExecGitClient_GetDiffUsesLiteralPathspecs(t *testing.T) {
+	repo := newTestRepo(t)
+	base := runTestGit(t, repo, "rev-parse", "HEAD")
+	writeTestFile(t, repo, ".gitattributes", "a.txt yawn=skip\n")
+	writeTestFile(t, repo, "[ab].txt", "public content\n")
+	writeTestFile(t, repo, "a.txt", "synthetic private content\n")
+	runTestGit(t, repo, "add", ".")
+	client := &ExecGitClient{RepoPath: repo}
+
+	check := func(diff string, err error) {
+		t.Helper()
+		require.NoError(t, err)
+		assert.Contains(t, diff, "+public content")
+		assert.Contains(t, diff, "a.txt: skipped")
+		assert.NotContains(t, diff, "synthetic private content")
+	}
+	check(client.GetDiff())
+	check(client.GetDiffCachedRange(base))
+	runTestGit(t, repo, "commit", "-m", "add files")
+	check(client.GetDiffRange(base))
+}
+
+func TestExecGitClient_FindBranchBaseIgnoresNonAncestorBranches(t *testing.T) {
+	for _, kind := range []string{"backup", "descendant", "sibling"} {
+		t.Run(kind, func(t *testing.T) {
+			repo := newTestRepo(t)
+			base := runTestGit(t, repo, "rev-parse", "HEAD")
+			runTestGit(t, repo, "checkout", "-b", "feature")
+			for _, name := range []string{"one.txt", "two.txt"} {
+				writeTestFile(t, repo, name, name+"\n")
+				runTestGit(t, repo, "add", name)
+				runTestGit(t, repo, "commit", "-m", name)
+			}
+			start := "HEAD"
+			if kind == "sibling" {
+				start = "HEAD~1"
+			}
+			runTestGit(t, repo, "checkout", "-b", "other", start)
+			if kind != "backup" {
+				writeTestFile(t, repo, "other.txt", "other\n")
+				runTestGit(t, repo, "add", "other.txt")
+				runTestGit(t, repo, "commit", "-m", "other")
+			}
+			runTestGit(t, repo, "checkout", "feature")
+			client := &ExecGitClient{RepoPath: repo}
+
+			got, err := client.FindBranchBase("feature")
+			require.NoError(t, err)
+			assert.Equal(t, base, got)
+			ref, err := client.FindBranchBaseRef("feature")
+			require.NoError(t, err)
+			assert.Equal(t, "master", ref)
+		})
+	}
+}
+
+func TestExecGitClient_StashRestoresOnlyItsOwnWork(t *testing.T) {
+	repo := newTestRepo(t)
+	writeTestFile(t, repo, "README.md", "unrelated old work\n")
+	runTestGit(t, repo, "stash", "push", "-m", "old work")
+	oldStash := runTestGit(t, repo, "rev-parse", "refs/stash")
+	writeTestFile(t, repo, "untracked.txt", "new work\n")
+	client := &ExecGitClient{RepoPath: repo}
+
+	stash, err := client.Stash()
+	require.NoError(t, err)
+	require.NotEmpty(t, stash)
+	require.NotEqual(t, oldStash, stash)
+	assert.NoFileExists(t, filepath.Join(repo, "untracked.txt"))
+	require.NoError(t, client.StashPop(stash))
+	assert.FileExists(t, filepath.Join(repo, "untracked.txt"))
+	assert.Equal(t, oldStash, runTestGit(t, repo, "rev-parse", "refs/stash"))
+	assert.Equal(t, oldStash, runTestGit(t, repo, "stash", "list", "--format=%H"))
+	assert.Empty(t, runTestGit(t, repo, "diff"))
+}
+
+func TestExecGitClient_StashWithoutChangesPreservesExistingStash(t *testing.T) {
+	repo := newTestRepo(t)
+	writeTestFile(t, repo, "README.md", "old work\n")
+	runTestGit(t, repo, "stash", "push", "-m", "old work")
+	oldStash := runTestGit(t, repo, "rev-parse", "refs/stash")
+	client := &ExecGitClient{RepoPath: repo}
+
+	stash, err := client.Stash()
+	require.NoError(t, err)
+	assert.Empty(t, stash)
+	require.NoError(t, client.StashPop(stash))
+	assert.Equal(t, oldStash, runTestGit(t, repo, "rev-parse", "refs/stash"))
+	assert.Empty(t, runTestGit(t, repo, "status", "--porcelain"))
+}
+
+func TestExecGitClient_StashPreservesIndex(t *testing.T) {
+	repo := newTestRepo(t)
+	writeTestFile(t, repo, "README.md", "staged work\n")
+	runTestGit(t, repo, "add", "README.md")
+	writeTestFile(t, repo, "README.md", "unstaged work\n")
+	client := &ExecGitClient{RepoPath: repo}
+	staged := runTestGit(t, repo, "diff", "--cached")
+	unstaged := runTestGit(t, repo, "diff")
+
+	stash, err := client.Stash()
+	require.NoError(t, err)
+	require.NoError(t, client.StashPop(stash))
+	assert.Equal(t, staged, runTestGit(t, repo, "diff", "--cached"))
+	assert.Equal(t, unstaged, runTestGit(t, repo, "diff"))
+	assert.Empty(t, runTestGit(t, repo, "stash", "list"))
+}
+
 func newTestRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

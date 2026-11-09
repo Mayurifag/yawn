@@ -99,9 +99,6 @@ func (c Config) GetProviderConfig(provider string) ProviderConfig {
 	if loadedProviderCfg.Model != "" {
 		providerCfg.Model = loadedProviderCfg.Model
 	}
-	if providerCfg.Model == "" {
-		providerCfg.Model = defaultProviderModel(provider)
-	}
 	return providerCfg
 }
 
@@ -128,17 +125,6 @@ func defaultProviderConfig(provider string) ProviderConfig {
 		return ProviderConfig{Model: DefaultOpenCodeCLIModel}
 	default:
 		return ProviderConfig{}
-	}
-}
-
-func defaultProviderModel(provider string) string {
-	switch provider {
-	case ProviderGemini:
-		return DefaultGeminiModel
-	case ProviderOpenCodeCLI:
-		return DefaultOpenCodeCLIModel
-	default:
-		return ""
 	}
 }
 

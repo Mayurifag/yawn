@@ -106,17 +106,28 @@ func (a *App) handleSingleCommit(ctx context.Context, base string) error {
 		return err
 	}
 
+	message, err := a.generateSquashMessage(ctx, base)
+	if err != nil {
+		return err
+	}
+	if err := a.GitClient.AmendCommit(message); err != nil {
+		return err
+	}
+	return a.handleSquashPush()
+}
+
+func (a *App) generateSquashMessage(ctx context.Context, base string) (string, error) {
 	diff, err := a.GitClient.GetDiffCachedRange(base)
 	if err != nil {
-		return fmt.Errorf("failed to get branch changes: %w", err)
+		return "", fmt.Errorf("failed to get branch changes: %w", err)
 	}
 	if diff == "" {
-		return fmt.Errorf("no branch changes to amend")
+		return "", fmt.Errorf("no branch changes to commit")
 	}
 
 	aiClient, err := ai.NewClient(a.Config)
 	if err != nil {
-		return fmt.Errorf("failed to create AI client: %w", err)
+		return "", fmt.Errorf("failed to create AI client: %w", err)
 	}
 
 	branchName, err := a.GitClient.GetCurrentBranch()
@@ -126,14 +137,7 @@ func (a *App) handleSingleCommit(ctx context.Context, base string) error {
 	additions, deletions, _ := a.GitClient.GetDiffNumStatCachedRange(base)
 	ui.PrintPreGenerationInfo(branchName, additions, deletions, a.Config.GetModelLabel())
 
-	message, err := a.generateCommitMessageAndStream(ctx, aiClient, a.Config.Prompt, diff)
-	if err != nil {
-		return err
-	}
-	if err := a.GitClient.AmendCommit(message); err != nil {
-		return err
-	}
-	return a.handleSquashPush()
+	return a.generateCommitMessageAndStream(ctx, aiClient, a.Config.Prompt, diff)
 }
 
 func (a *App) handleMultiCommitSquash(ctx context.Context, base string, count int) (err error) {
@@ -157,11 +161,12 @@ func (a *App) handleMultiCommitSquash(ctx context.Context, base string, count in
 	}
 
 	if action == dirtyStash {
-		if err = a.GitClient.Stash(); err != nil {
-			return err
+		stash, stashErr := a.GitClient.Stash()
+		if stashErr != nil {
+			return stashErr
 		}
 		defer func() {
-			if popErr := a.GitClient.StashPop(); popErr != nil {
+			if popErr := a.GitClient.StashPop(stash); popErr != nil {
 				ui.PrintError(fmt.Sprintf("stash pop failed: %v", popErr))
 				if err == nil {
 					err = popErr
@@ -170,14 +175,25 @@ func (a *App) handleMultiCommitSquash(ctx context.Context, base string, count in
 		}()
 	}
 
+	ui.PrintInfo(fmt.Sprintf("Squashing %d commits into 1...", count))
+	message, err := a.generateSquashMessage(ctx, base)
+	if err != nil {
+		return err
+	}
+	original, err := a.GitClient.GetLastCommitHash()
+	if err != nil {
+		return err
+	}
 	if err := a.GitClient.ResetSoft(base); err != nil {
 		return err
 	}
-
-	ui.PrintInfo(fmt.Sprintf("Squashing %d commits into 1...", count))
-	if err := a.generateAndCommitChanges(ctx); err != nil {
+	if err := a.GitClient.Commit(message); err != nil {
+		if restoreErr := a.GitClient.ResetSoft(original); restoreErr != nil {
+			return fmt.Errorf("squash commit failed: %w; restoring branch to %s failed: %w", err, original, restoreErr)
+		}
 		return err
 	}
+	ui.PrintSuccess("Successfully committed changes.")
 
 	return a.handleSquashPush()
 }

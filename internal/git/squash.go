@@ -40,8 +40,11 @@ func (c *ExecGitClient) findBranchBaseFromRefs(branch string) (string, string) {
 	bestDistance := -1
 	for _, ref := range c.branchBaseCandidateRefs(branch) {
 		base := c.mergeBase(ref)
+		if base == "" {
+			continue
+		}
 		distance, err := c.GetCommitCountRange(base)
-		if base == "" || err != nil {
+		if err != nil {
 			continue
 		}
 		if bestDistance == -1 || distance < bestDistance {
@@ -73,10 +76,20 @@ func (c *ExecGitClient) branchBaseCandidateRefs(branch string) []string {
 	if defaultBranch, err := c.GetDefaultBranch(); err == nil && defaultBranch != "" {
 		refs = append(refs, "origin/"+defaultBranch, defaultBranch)
 	}
-	if output, err := c.runGitCommand("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin", "refs/heads"); err == nil {
-		for _, ref := range strings.Split(output, "\n") {
-			ref = strings.TrimSpace(ref)
-			if ref != "" && ref != "origin/HEAD" && ref != branch && ref != "origin/"+branch {
+	for _, name := range []string{"main", "master", "dev"} {
+		if name != branch {
+			refs = append(refs, "origin/"+name, name)
+		}
+	}
+	head, _ := c.GetLastCommitHash()
+	if output, err := c.runGitCommand("for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin", "refs/heads"); err == nil {
+		for _, line := range strings.Split(output, "\n") {
+			ref, tip, ok := strings.Cut(line, " ")
+			if !ok || ref == "origin/HEAD" || ref == branch || ref == "origin/"+branch || tip == head {
+				continue
+			}
+			// Only strict ancestors can be stacked-branch bases, not backups or sibling branches.
+			if _, err := c.runGitCommand("merge-base", "--is-ancestor", ref, "HEAD"); err == nil {
 				refs = append(refs, ref)
 			}
 		}
@@ -146,16 +159,41 @@ func (c *ExecGitClient) ResetSoft(commit string) error {
 	return nil
 }
 
-func (c *ExecGitClient) Stash() error {
-	if _, err := c.runGitCommand("stash"); err != nil {
-		return fmt.Errorf("failed to stash: %w", err)
+func (c *ExecGitClient) Stash() (string, error) {
+	before, err := c.runGitCommand("stash", "list", "-1", "--format=%H")
+	if err != nil {
+		return "", err
 	}
-	return nil
+	if _, err := c.runGitCommand("stash", "push", "--include-untracked"); err != nil {
+		return "", fmt.Errorf("failed to stash: %w", err)
+	}
+	after, err := c.runGitCommand("stash", "list", "-1", "--format=%H")
+	if err != nil {
+		return "", err
+	}
+	if after == before {
+		return "", nil
+	}
+	return after, nil
 }
 
-func (c *ExecGitClient) StashPop() error {
-	if _, err := c.runGitCommand("stash", "pop"); err != nil {
-		return fmt.Errorf("failed to pop stash: %w", err)
+func (c *ExecGitClient) StashPop(stash string) error {
+	if stash == "" {
+		return nil
+	}
+	if _, err := c.runGitCommand("stash", "apply", "--index", stash); err != nil {
+		return fmt.Errorf("failed to restore stash %s: %w", stash, err)
+	}
+	output, err := c.runGitCommand("stash", "list", "--format=%gd %H")
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(output, "\n") {
+		ref, hash, _ := strings.Cut(line, " ")
+		if hash == stash {
+			_, err := c.runGitCommand("stash", "drop", ref)
+			return err
+		}
 	}
 	return nil
 }

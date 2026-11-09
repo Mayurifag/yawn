@@ -46,8 +46,8 @@ type GitClient interface {
 	GetDiffNumStatRange(base string) (additions int, deletions int, err error)
 	GetDiffNumStatCachedRange(base string) (additions int, deletions int, err error)
 	ResetSoft(commit string) error
-	Stash() error
-	StashPop() error
+	Stash() (string, error)
+	StashPop(stash string) error
 	GetUnpushedCommits() ([]string, error)
 	GetRemoteOnlyCommits() ([]string, error)
 	GetDivergenceVsOrigin(branch string) (localOnly []string, remoteOnly []string, err error)
@@ -223,7 +223,7 @@ func (c *ExecGitClient) buildFilteredDiff(numstatOutput string, diffBaseArgs []s
 
 	var b strings.Builder
 	for i, e := range normal {
-		args := append([]string{}, diffBaseArgs...)
+		args := append([]string{"--literal-pathspecs"}, diffBaseArgs...)
 		args = append(args, "--")
 		args = append(args, e.path)
 		out, err := c.runGitCommand(args...)
