@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -31,29 +32,26 @@ type GitClient interface {
 	StageChanges() error
 	Commit(message string) error
 	AmendCommit(message string) error
-	Push(command string) (string, error)
+	ResolvePushTarget(command string) (PushTarget, error)
+	PreparePush(command string) (*PushPlan, error)
+	Push(plan *PushPlan, force bool) (string, error)
 	HasRemotes() (bool, error)
 	GetCurrentBranch() (string, error)
-	GetRemoteURL(remote string) (string, error)
 	SetRemoteURL(remote, newURL string) error
 	GetLastCommitHash() (string, error)
 	GetDiffNumStatSummary() (additions int, deletions int, err error)
-	FindBranchBase(branch string) (string, error)
+	FindBranchBase(branch, baseRef string) (string, error)
 	FindBranchBaseRef(branch string) (string, error)
 	GetCommitCountRange(base string) (int, error)
 	GetDiffRange(base string) (string, error)
 	GetDiffCachedRange(base string) (string, error)
-	GetDiffNumStatRange(base string) (additions int, deletions int, err error)
 	GetDiffNumStatCachedRange(base string) (additions int, deletions int, err error)
 	ResetSoft(commit string) error
 	Stash() (string, error)
 	StashPop(stash string) error
-	GetUnpushedCommits() ([]string, error)
-	GetRemoteOnlyCommits() ([]string, error)
-	GetDivergenceVsOrigin(branch string) (localOnly []string, remoteOnly []string, err error)
 	GetStatusShort() (string, error)
-	GetDefaultBranch() (string, error)
-	GetPullRequestURL(branch string) (string, error)
+	GetDefaultBranch(remote string) (string, error)
+	GetPullRequestURL(remoteURL, branch string) (string, error)
 }
 
 type ExecGitClient struct {
@@ -101,30 +99,40 @@ func (e *GitError) Error() string {
 }
 
 func (c *ExecGitClient) runGitCommand(args ...string) (string, error) {
-	return c.runGitCommandContext(context.Background(), args...)
+	output, err := c.runGitCommandRaw(args...)
+	return strings.TrimSpace(output), err
 }
 
-func (c *ExecGitClient) runGitCommandContext(ctx context.Context, args ...string) (string, error) {
+func (c *ExecGitClient) runGitCommandRaw(args ...string) (string, error) {
+	return c.runGitCommandInput("", args...)
+}
+
+func (c *ExecGitClient) runGitCommandInput(input string, args ...string) (string, error) {
+	return c.runGitCommandContext(context.Background(), input, args...)
+}
+
+func (c *ExecGitClient) runGitCommandContext(ctx context.Context, input string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = c.RepoPath
 	cmd.Env = append(os.Environ(), "GIT_PAGER=cat")
+	cmd.Stdin = strings.NewReader(input)
 
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("%w: git %s", ErrNetworkTimeout, strings.Join(args, " "))
+			return "", fmt.Errorf("%w: git %s", ErrNetworkTimeout, args[0])
 		}
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return "", &GitError{
 				Command:  fmt.Sprintf("git %s", strings.Join(args, " ")),
-				Output:   string(output),
+				Output:   string(output) + string(exitErr.Stderr),
 				ExitCode: exitErr.ExitCode(),
 			}
 		}
 		return "", fmt.Errorf("failed to execute git command: %w", err)
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	return string(output), nil
 }
 
 func (c *ExecGitClient) HasStagedChanges() (bool, error) {
@@ -171,96 +179,11 @@ func (c *ExecGitClient) GetDiff() (string, error) {
 	if err != nil || numstatOutput == "" {
 		return "", err
 	}
-	return c.buildFilteredDiff(numstatOutput, []string{"diff", "--cached", "--no-color"}), nil
+	return c.buildFilteredDiff(numstatOutput, []string{"diff", "--cached", "--no-color"}, "")
 }
 
 func (c *ExecGitClient) getNumstatOutput() (string, error) {
-	numstatOutput, err := c.runGitCommand("diff", "--cached", "--numstat", "-z", "--no-renames", "--no-color")
-	if err != nil {
-		if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
-			return gitErr.Output, nil
-		}
-		return "", nil
-	}
-	return numstatOutput, nil
-}
-
-func (c *ExecGitClient) checkAttrs(attrs []string, files []string) (map[string]map[string]string, error) {
-	if len(files) == 0 || len(attrs) == 0 {
-		return nil, nil
-	}
-	args := append([]string{"check-attr", "-z"}, attrs...)
-	args = append(args, "--")
-	args = append(args, files...)
-	out, err := c.runGitCommand(args...)
-	if err != nil {
-		return nil, err
-	}
-	return parseCheckAttrOutput(out), nil
-}
-
-func (c *ExecGitClient) diffFile(path string, paths, diffBaseArgs []string) (string, error) {
-	args := append([]string{"--no-literal-pathspecs"}, diffBaseArgs...)
-	args = append(args, "--", ":(top,literal)"+path)
-	// Even literal pathspecs include descendants during file/directory transitions.
-	for _, other := range paths {
-		if strings.HasPrefix(other, path+"/") {
-			args = append(args, ":(top,exclude,literal)"+other)
-		}
-	}
-	return c.runGitCommand(args...)
-}
-
-func (c *ExecGitClient) buildFilteredDiff(numstatOutput string, diffBaseArgs []string) string {
-	entries := parseNumstatEntries(numstatOutput)
-	if len(entries) == 0 {
-		return ""
-	}
-	paths := make([]string, len(entries))
-	for i, e := range entries {
-		paths[i] = e.path
-	}
-	attrs, _ := c.checkAttrs([]string{"filter", "diff", "yawn"}, paths)
-
-	var normal []numstatEntry
-	var redacted []classifiedFile
-	for _, e := range entries {
-		cat := classifyEntry(e, attrs[e.path])
-		if cat == catNormal {
-			normal = append(normal, e)
-			continue
-		}
-		redacted = append(redacted, classifiedFile{entry: e, category: cat})
-	}
-
-	var b strings.Builder
-	for i, e := range normal {
-		out, err := c.diffFile(e.path, paths, diffBaseArgs)
-		if err != nil {
-			if gitErr, ok := err.(*GitError); ok && gitErr.Output != "" {
-				out = gitErr.Output
-			} else {
-				continue
-			}
-		}
-		if b.Len() > 0 && out != "" {
-			out = "\n\n" + out
-		}
-		if writeLimited(&b, out, MaxDiffBytes) {
-			continue
-		}
-		for _, omitted := range normal[i:] {
-			redacted = append(redacted, classifiedFile{entry: omitted, category: catLarge})
-		}
-		break
-	}
-	if summary := formatRedactedSummary(redacted); summary != "" {
-		if b.Len() > 0 {
-			b.WriteString("\n\n")
-		}
-		b.WriteString(summary)
-	}
-	return b.String()
+	return c.runGitCommandRaw("diff", "--cached", "--numstat", "-z", "--no-renames", "--no-color")
 }
 
 func writeLimited(b *strings.Builder, s string, limit int) bool {
@@ -274,6 +197,9 @@ func writeLimited(b *strings.Builder, s string, limit int) bool {
 	if len(s) <= remaining {
 		b.WriteString(s)
 		return true
+	}
+	for remaining > 0 && !utf8.RuneStart(s[remaining]) {
+		remaining--
 	}
 	b.WriteString(s[:remaining])
 	return false
@@ -303,43 +229,6 @@ func (c *ExecGitClient) AmendCommit(message string) error {
 	return nil
 }
 
-func (c *ExecGitClient) Push(command string) (string, error) {
-	parts := strings.Fields(command)
-	if len(parts) < 2 || parts[0] != "git" || parts[1] != "push" {
-		return "", fmt.Errorf("invalid push command format: expected 'git push ...', got '%s'", command)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), NetworkPushTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "git", parts[1:]...)
-	cmd.Dir = c.RepoPath
-	cmd.Env = append(os.Environ(), "GIT_PAGER=cat")
-	cmd.Stdin = os.Stdin
-
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-
-	err := cmd.Run()
-	output := strings.TrimSpace(buf.String())
-
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return output, fmt.Errorf("%w: git %s", ErrNetworkTimeout, strings.Join(parts[1:], " "))
-		}
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", &GitError{
-				Command:  fmt.Sprintf("git %s", strings.Join(parts[1:], " ")),
-				Output:   output,
-				ExitCode: exitErr.ExitCode(),
-			}
-		}
-		return "", fmt.Errorf("failed to push changes: %w", err)
-	}
-	return output, nil
-}
-
 func (c *ExecGitClient) HasRemotes() (bool, error) {
 	output, err := c.runGitCommand("remote", "-v")
 	if err != nil {
@@ -359,7 +248,7 @@ func (c *ExecGitClient) GetCurrentBranch() (string, error) {
 	return normalizeBranchName(output), nil
 }
 
-func (c *ExecGitClient) GetPullRequestURL(branch string) (string, error) {
+func (c *ExecGitClient) GetPullRequestURL(remoteURL, branch string) (string, error) {
 	branch = normalizeBranchName(branch)
 	if branch == "" {
 		return "", fmt.Errorf("branch is empty")
@@ -368,10 +257,6 @@ func (c *ExecGitClient) GetPullRequestURL(branch string) (string, error) {
 		return "", fmt.Errorf("gh is not available: %w", err)
 	}
 
-	remoteURL, err := c.GetRemoteURL("")
-	if err != nil {
-		return "", err
-	}
 	remoteInfo, err := ParseRemoteURL(remoteURL)
 	if err != nil {
 		return "", err
@@ -386,7 +271,8 @@ func (c *ExecGitClient) GetPullRequestURL(branch string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), PRLookupTimeout)
 	defer cancel()
 
-	output, err := c.runGHCommandContext(ctx, "pr", "view", branch, "--json", "url", "--jq", ".url")
+	output, err := c.runGHCommandContext(ctx, "pr", "list", "--repo", remoteInfo.Host+"/"+remoteInfo.Owner+"/"+remoteInfo.Repo,
+		"--state", "open", "--head", branch, "--json", "url", "--jq", ".[0].url // empty")
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("pull request lookup timed out for branch %q", branch)
@@ -421,22 +307,11 @@ func (c *ExecGitClient) runGHCommandContext(ctx context.Context, args ...string)
 	return string(output), err
 }
 
-func (c *ExecGitClient) GetRemoteURL(remote string) (string, error) {
-	if remote == "" {
-		remote = "origin"
-	}
-	output, err := c.runGitCommand("remote", "get-url", remote)
-	if err != nil {
-		return "", fmt.Errorf("failed to get remote URL: %w", err)
-	}
-	return output, nil
-}
-
 func (c *ExecGitClient) SetRemoteURL(remote, newURL string) error {
 	if remote == "" {
 		remote = "origin"
 	}
-	if _, err := c.runGitCommand("remote", "set-url", remote, newURL); err != nil {
+	if _, err := c.runGitCommand("remote", "set-url", "--push", remote, newURL); err != nil {
 		return fmt.Errorf("failed to set remote URL: %w", err)
 	}
 	return nil
@@ -475,8 +350,9 @@ func (c *ExecGitClient) GetDiffNumStatSummary() (additions int, deletions int, e
 	return
 }
 
-func (c *ExecGitClient) getCommitList(rangeArg string) ([]string, error) {
-	output, err := c.runGitCommand("log", rangeArg, "--format=%ad - %an - %s", "--date=short")
+func (c *ExecGitClient) getCommitList(revisions ...string) ([]string, error) {
+	args := append([]string{"log", "--format=%ad - %an - %s", "--date=short"}, revisions...)
+	output, err := c.runGitCommand(args...)
 	if err != nil {
 		return nil, err
 	}
@@ -492,14 +368,6 @@ func (c *ExecGitClient) getCommitList(rangeArg string) ([]string, error) {
 	return commits, nil
 }
 
-func (c *ExecGitClient) GetUnpushedCommits() ([]string, error) {
-	return c.getCommitList("@{u}..HEAD")
-}
-
-func (c *ExecGitClient) GetRemoteOnlyCommits() ([]string, error) {
-	return c.getCommitList("HEAD..@{u}")
-}
-
 func (c *ExecGitClient) GetStatusShort() (string, error) {
 	output, err := c.runGitCommand("status", "--short")
 	if err != nil {
@@ -508,33 +376,33 @@ func (c *ExecGitClient) GetStatusShort() (string, error) {
 	return output, nil
 }
 
-func (c *ExecGitClient) GetDefaultBranch() (string, error) {
-	output, err := c.runGitCommand("symbolic-ref", "refs/remotes/origin/HEAD")
+func (c *ExecGitClient) GetDefaultBranch(remote string) (string, error) {
+	if remote == "" {
+		remote = "origin"
+	}
+	prefix := "refs/remotes/" + remote
+	output, err := c.runGitCommand("symbolic-ref", prefix+"/HEAD")
 	if err == nil {
-		return lastRefPart(output), nil
+		return strings.TrimPrefix(output, prefix+"/"), nil
 	}
 
-	remoteBranches, listErr := c.runGitCommand("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin")
-	if listErr == nil {
+	for _, namespace := range []string{prefix, "refs/heads"} {
+		output, listErr := c.runGitCommand("for-each-ref", "--format=%(refname)", namespace)
+		if listErr != nil {
+			return "", listErr
+		}
 		var branches []string
-		for _, ref := range strings.Split(remoteBranches, "\n") {
-			ref = strings.TrimSpace(ref)
-			if ref != "" && ref != "origin/HEAD" {
-				branches = append(branches, ref)
+		for _, ref := range strings.Split(output, "\n") {
+			branch := strings.TrimPrefix(ref, namespace+"/")
+			if branch != "" && branch != "HEAD" {
+				branches = append(branches, branch)
 			}
 		}
-		if len(branches) == 1 {
-			return lastRefPart(branches[0]), nil
-		}
-	}
-
-	localBranches, localErr := c.runGitCommand("for-each-ref", "--format=%(refname:short)", "refs/heads")
-	if localErr == nil {
-		var branches []string
-		for _, ref := range strings.Split(localBranches, "\n") {
-			ref = strings.TrimSpace(ref)
-			if ref != "" {
-				branches = append(branches, ref)
+		for _, candidate := range []string{"main", "master", "dev"} {
+			for _, branch := range branches {
+				if branch == candidate {
+					return branch, nil
+				}
 			}
 		}
 		if len(branches) == 1 {
@@ -542,25 +410,4 @@ func (c *ExecGitClient) GetDefaultBranch() (string, error) {
 		}
 	}
 	return "", err
-}
-
-func (c *ExecGitClient) GetDivergenceVsOrigin(branch string) ([]string, []string, error) {
-	originRef := "origin/" + branch
-	if _, err := c.runGitCommand("rev-parse", "--verify", originRef); err != nil {
-		return nil, nil, nil
-	}
-	local, err := c.getCommitList(originRef + "..HEAD")
-	if err != nil {
-		return nil, nil, err
-	}
-	remote, err := c.getCommitList("HEAD.." + originRef)
-	if err != nil {
-		return nil, nil, err
-	}
-	return local, remote, nil
-}
-
-func lastRefPart(ref string) string {
-	parts := strings.Split(ref, "/")
-	return parts[len(parts)-1]
 }

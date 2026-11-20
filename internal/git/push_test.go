@@ -197,6 +197,15 @@ func TestGeneratePRURL(t *testing.T) {
 		expected string
 	}{
 		{
+			name:     "GitHub branch with hash and percent characters",
+			host:     "github.com",
+			owner:    "owner",
+			repo:     "repo",
+			branch:   "feature/#123%",
+			base:     "release/#1",
+			expected: "https://github.com/owner/repo/compare/release/%231...feature/%23123%25?expand=1",
+		},
+		{
 			name:     "GitHub feature branch",
 			host:     "github.com",
 			owner:    "owner",
@@ -324,12 +333,7 @@ func TestGeneratePRURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := &MockGitClient{
-				MockFindBranchBaseRef: func(branch string) (string, error) {
-					return tt.base, nil
-				},
-			}
-			result := GeneratePRURL(client, tt.host, tt.owner, tt.repo, tt.branch)
+			result := GeneratePRURL(tt.host, tt.owner, tt.repo, tt.branch, tt.base)
 			if result != tt.expected {
 				t.Errorf("GeneratePRURL() = %q, expected %q", result, tt.expected)
 			}
@@ -460,7 +464,7 @@ func TestFindPullRequestURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			lookedUp := false
 			client := &MockGitClient{
-				MockGetPullRequestURL: func(branch string) (string, error) {
+				MockGetPullRequestURL: func(_ string, branch string) (string, error) {
 					lookedUp = true
 					expectedBranch := normalizeBranchName(tt.branch)
 					if branch != expectedBranch {
@@ -470,7 +474,7 @@ func TestFindPullRequestURL(t *testing.T) {
 				},
 			}
 
-			result := FindPullRequestURL(client, tt.host, tt.branch)
+			result := FindPullRequestURL(client, "git@"+tt.host+":owner/repo.git", tt.branch)
 
 			if result != tt.expected {
 				t.Errorf("FindPullRequestURL() = %q, expected %q", result, tt.expected)
@@ -484,19 +488,19 @@ func TestFindPullRequestURL(t *testing.T) {
 
 func TestExecutePushUsesExistingPullRequest(t *testing.T) {
 	client := &MockGitClient{
-		MockPush: func(command string) (string, error) {
+		MockPush: func(*PushPlan, bool) (string, error) {
 			return "Everything up-to-date", nil
-		},
-		MockGetRemoteURL: func(remoteName string) (string, error) {
-			return "git@github.com:owner/repo.git", nil
 		},
 		MockGetCurrentBranch: func() (string, error) {
 			return "opencode", nil
 		},
-		MockGetDefaultBranch: func() (string, error) {
+		MockGetDefaultBranch: func(string) (string, error) {
 			return "master", nil
 		},
-		MockGetPullRequestURL: func(branch string) (string, error) {
+		MockGetPullRequestURL: func(remoteURL, branch string) (string, error) {
+			if remoteURL != "git@github.com:owner/repo.git" {
+				t.Errorf("wrong push URL: %q", remoteURL)
+			}
 			if branch != "opencode" {
 				t.Errorf("GetPullRequestURL branch = %q, expected opencode", branch)
 			}
@@ -504,7 +508,7 @@ func TestExecutePushUsesExistingPullRequest(t *testing.T) {
 		},
 	}
 
-	result, err := NewPusher(client).ExecutePush("git push")
+	result, err := NewPusher(client).ExecutePush(&PushPlan{Target: PushTarget{Remote: "upstream", URL: "git@github.com:owner/repo.git", Branch: "opencode"}}, false)
 	if err != nil {
 		t.Fatalf("ExecutePush() unexpected error: %v", err)
 	}

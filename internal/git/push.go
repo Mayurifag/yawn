@@ -37,14 +37,18 @@ func GenerateRepoLink(host, owner, repo string) string {
 }
 
 func newRemoteInfo(host, path, rawURL string) (*RemoteInfo, error) {
-	owner, repo, ok := strings.Cut(path, "/")
-	if !ok || strings.Contains(repo, "/") {
+	separator := strings.LastIndex(path, "/")
+	if host == "" || separator <= 0 || separator == len(path)-1 {
+		return nil, fmt.Errorf("invalid repository path format: %s", path)
+	}
+	owner, repo := path[:separator], strings.TrimSuffix(path[separator+1:], ".git")
+	if repo == "" || strings.Contains(owner, "//") || (isGitHubHost(host) && strings.Contains(owner, "/")) {
 		return nil, fmt.Errorf("invalid repository path format: %s", path)
 	}
 	return &RemoteInfo{
 		Host:  host,
 		Owner: owner,
-		Repo:  strings.TrimSuffix(repo, ".git"),
+		Repo:  repo,
 		URL:   rawURL,
 	}, nil
 }
@@ -87,12 +91,11 @@ func normalizeBranchName(branch string) string {
 	return strings.TrimPrefix(branch, "heads/")
 }
 
-func GeneratePRURL(gitClient GitClient, host, owner, repo, branch string) string {
+func GeneratePRURL(host, owner, repo, branch, baseBranch string) string {
 	branch = normalizeBranchName(branch)
 	if host == "" || owner == "" || repo == "" || branch == "" || defaultBranches[branch] {
 		return ""
 	}
-	baseBranch, _ := gitClient.FindBranchBaseRef(branch)
 	baseBranch = normalizeBranchName(strings.TrimSpace(baseBranch))
 	if baseBranch == branch {
 		return ""
@@ -105,18 +108,25 @@ func GeneratePRURL(gitClient GitClient, host, owner, repo, branch string) string
 		}
 		return fmt.Sprintf("https://%s/%s/%s/-/merge_requests/new?%s", host, owner, repo, values.Encode())
 	}
+	comparison := branch
 	if baseBranch != "" {
-		return fmt.Sprintf("https://%s/%s/%s/compare/%s...%s?expand=1", host, owner, repo, baseBranch, branch)
+		comparison = baseBranch + "..." + branch
 	}
-	return fmt.Sprintf("https://%s/%s/%s/compare/%s?expand=1", host, owner, repo, branch)
+	return (&url.URL{
+		Scheme:   "https",
+		Host:     host,
+		Path:     fmt.Sprintf("/%s/%s/compare/%s", owner, repo, comparison),
+		RawQuery: "expand=1",
+	}).String()
 }
 
-func FindPullRequestURL(gitClient GitClient, host, branch string) string {
-	if !isGitHubHost(host) {
+func FindPullRequestURL(gitClient GitClient, remoteURL, branch string) string {
+	remote, err := ParseRemoteURL(remoteURL)
+	if err != nil || !isGitHubHost(remote.Host) {
 		return ""
 	}
 	branch = normalizeBranchName(branch)
-	prURL, err := gitClient.GetPullRequestURL(branch)
+	prURL, err := gitClient.GetPullRequestURL(remoteURL, branch)
 	if err != nil {
 		return ""
 	}
@@ -131,7 +141,7 @@ type PushResult struct {
 }
 
 type PushProvider interface {
-	ExecutePush(command string) (*PushResult, error)
+	ExecutePush(plan *PushPlan, force bool) (*PushResult, error)
 	HasRemotes() (bool, error)
 }
 
@@ -143,44 +153,39 @@ func NewPusher(gitClient GitClient) *Pusher {
 	return &Pusher{gitClient: gitClient}
 }
 
-func (p *Pusher) ExecutePush(command string) (*PushResult, error) {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return nil, fmt.Errorf("push command is empty")
-	}
-	if len(parts) < 2 || parts[0] != "git" || parts[1] != "push" {
-		return nil, fmt.Errorf("invalid push command format: expected 'git push ...', got '%s'", command)
-	}
-
-	output, err := p.gitClient.Push(command)
+func (p *Pusher) ExecutePush(plan *PushPlan, force bool) (*PushResult, error) {
+	output, err := p.gitClient.Push(plan, force)
 	if err != nil {
-		return &PushResult{Success: false}, fmt.Errorf("failed to push changes using command '%s': %w", command, err)
+		return nil, err
 	}
-
-	result := &PushResult{
-		Success: true,
-		PRLink:  extractPRLink(output),
+	result := PushLinks(p.gitClient, plan.Target)
+	result.Success = true
+	if link := extractPRLink(output); link != "" {
+		result.PRLink = link
+		result.SuggestPRLink = ""
 	}
+	return &result, nil
+}
 
-	if remoteURL, err := p.gitClient.GetRemoteURL(""); err == nil {
-		if remoteInfo, err := ParseRemoteURL(remoteURL); err == nil {
-			result.RepoLink = GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo)
-			if result.PRLink == "" {
-				if branch, err := p.gitClient.GetCurrentBranch(); err == nil {
-					defaultBranch, _ := p.gitClient.GetDefaultBranch()
-					if branch != defaultBranch {
-						if prLink := FindPullRequestURL(p.gitClient, remoteInfo.Host, branch); prLink != "" {
-							result.PRLink = prLink
-						} else {
-							result.SuggestPRLink = GeneratePRURL(p.gitClient, remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
-						}
-					}
-				}
-			}
+func PushLinks(client GitClient, target PushTarget) PushResult {
+	result := PushResult{}
+	remote, err := ParseRemoteURL(target.URL)
+	if err != nil {
+		return result
+	}
+	result.RepoLink = GenerateRepoLink(remote.Host, remote.Owner, remote.Repo)
+	defaultBranch := target.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch, _ = client.GetDefaultBranch(target.Remote)
+	}
+	if target.Branch != defaultBranch {
+		result.PRLink = FindPullRequestURL(client, target.URL, target.Branch)
+		if result.PRLink == "" {
+			baseBranch, _ := client.FindBranchBaseRef(target.LocalBranch)
+			result.SuggestPRLink = GeneratePRURL(remote.Host, remote.Owner, remote.Repo, target.Branch, baseBranch)
 		}
 	}
-
-	return result, nil
+	return result
 }
 
 func (p *Pusher) HasRemotes() (bool, error) {

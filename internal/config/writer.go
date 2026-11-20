@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 func ensureUserConfigDir() (string, error) {
@@ -26,7 +29,7 @@ func ensureUserConfigDir() (string, error) {
 	return configPath, nil
 }
 
-func GenerateConfigContent(apiKey string) ([]byte, error) {
+func GenerateConfigContent() []byte {
 	var buf bytes.Buffer
 
 	buf.WriteString("# Configuration file for yawn - AI Git Committer\n#\n# Placement:\n#   ~/.config/yawn/config.toml (user config)\n#   ./.yawn.toml (project config, add to .gitignore)\n#\n# Precedence: CLI flags > env vars > project config > user config > defaults\n# Uncomment and change only the values you want to override.\n\n")
@@ -34,12 +37,12 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 	fmt.Fprintf(&buf, "main_provider = %q\n", DefaultProvider)
 	buf.WriteString("# fallback_provider = \"opencode_cli\"\n\n")
 
-	fmt.Fprintf(&buf, "# request_timeout_seconds = %d\n", DefaultTimeoutSecs)
+	fmt.Fprintf(&buf, "# request_timeout_seconds = %d # Timeout per provider attempt\n", DefaultTimeoutSecs)
 	fmt.Fprintf(&buf, "# auto_stage = %v\n", DefaultAutoStage)
 	fmt.Fprintf(&buf, "# auto_push = %v\n", DefaultAutoPush)
 	fmt.Fprintf(&buf, "# push_command = %q\n", DefaultPushCommand)
 	fmt.Fprintf(&buf, "# wait_for_ssh_keys = %v\n", DefaultWaitForSSHKeys)
-	fmt.Fprintf(&buf, "# squash_auto_push = %v\n", DefaultSquashAutoPush)
+	fmt.Fprintf(&buf, "# squash_auto_push = %v # Allow force-push after squash without confirmation\n", DefaultSquashAutoPush)
 	buf.WriteString("\n")
 
 	buf.WriteString("# prompt = '''\n")
@@ -54,17 +57,13 @@ func GenerateConfigContent(apiKey string) ([]byte, error) {
 	fmt.Fprintf(&buf, "#   fallback_provider = %q\n\n", ProviderGemini)
 
 	buf.WriteString("[providers.gemini]\n")
-	fmt.Fprintf(&buf, "api_key = %q\n", apiKey)
+	buf.WriteString("api_key = \"\"\n")
 	fmt.Fprintf(&buf, "# model = %q\n\n", DefaultGeminiModel)
 
 	buf.WriteString("# [providers.opencode_cli]\n")
 	fmt.Fprintf(&buf, "# model = %q\n", DefaultOpenCodeCLIModel)
 
-	return buf.Bytes(), nil
-}
-
-func SaveAPIKeyToUserConfig(apiKey string) error {
-	return SaveProviderAPIKeyToUserConfig(DefaultProvider, apiKey)
+	return buf.Bytes()
 }
 
 func SaveProviderAPIKeyToUserConfig(provider, apiKey string) error {
@@ -74,53 +73,68 @@ func SaveProviderAPIKeyToUserConfig(provider, apiKey string) error {
 	}
 
 	var configContent []byte
-
 	_, statErr := os.Stat(configPath)
 	if os.IsNotExist(statErr) {
-		configContent, err = GenerateConfigContent("")
-		if err != nil {
-			return fmt.Errorf("failed to generate new config content: %w", err)
-		}
-		configContent, err = updateExistingConfigContent(configContent, provider, apiKey)
-		if err != nil {
-			return err
-		}
+		configContent = GenerateConfigContent()
 	} else if statErr == nil {
-		existingContent, readErr := os.ReadFile(configPath)
-		if readErr != nil {
-			return fmt.Errorf("failed to read existing config file %s: %w", configPath, readErr)
-		}
-		configContent, err = updateExistingConfigContent(existingContent, provider, apiKey)
+		configContent, err = os.ReadFile(configPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read existing config file %s: %w", configPath, err)
 		}
 	} else {
 		return fmt.Errorf("failed to check user config file %s: %w", configPath, statErr)
 	}
 
+	configContent, err = updateExistingConfigContent(configContent, provider, apiKey)
+	if err != nil {
+		return err
+	}
 	return writeConfigFileAtomically(configContent, configPath)
 }
 
 func updateExistingConfigContent(existingContent []byte, provider, apiKey string) ([]byte, error) {
 	provider = NormalizeProvider(provider)
-	content, err := updateConfigKeyContent(existingContent, "main_provider", provider)
-	if err != nil {
-		return nil, err
+	var expected map[string]any
+	if _, err := toml.Decode(string(existingContent), &expected); err != nil {
+		return nil, fmt.Errorf("failed to parse existing config: %w", err)
 	}
-	return updateProviderConfigKeyContent(content, provider, "api_key", apiKey), nil
+	expected["main_provider"] = provider
+	if expected["providers"] == nil {
+		expected["providers"] = map[string]any{}
+	}
+	providers, ok := expected["providers"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("providers must be a TOML table")
+	}
+	if providers[provider] == nil {
+		providers[provider] = map[string]any{}
+	}
+	providerValues, ok := providers[provider].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("provider %q must be a TOML table", provider)
+	}
+	providerValues["api_key"] = apiKey
+
+	content := updateConfigKeyContent(existingContent, "main_provider", provider)
+	content = updateProviderConfigKeyContent(content, provider, "api_key", apiKey)
+	var updated map[string]any
+	if _, err := toml.Decode(string(content), &updated); err != nil || !reflect.DeepEqual(expected, updated) {
+		return nil, fmt.Errorf("cannot safely update this TOML layout; set providers.%s.api_key manually", provider)
+	}
+	return content, nil
 }
 
-func updateConfigKeyContent(existingContent []byte, key, value string) ([]byte, error) {
+func updateConfigKeyContent(existingContent []byte, key, value string) []byte {
 	newLine := fmt.Sprintf("%s = %q", key, value)
 	lines := strings.Split(string(existingContent), "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, key+" ") || strings.HasPrefix(trimmed, key+"=") {
 			lines[i] = newLine
-			return []byte(strings.Join(lines, "\n")), nil
+			return []byte(strings.Join(lines, "\n"))
 		}
 	}
-	return []byte(newLine + "\n" + string(existingContent)), nil
+	return []byte(newLine + "\n" + string(existingContent))
 }
 
 func updateProviderConfigKeyContent(existingContent []byte, provider, key, value string) []byte {
@@ -172,11 +186,7 @@ func writeConfigFileAtomically(content []byte, targetPath string) error {
 		return fmt.Errorf("failed to create temporary config file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer func() {
-		if err != nil {
-			_ = os.Remove(tmpPath)
-		}
-	}()
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	if _, err = tmpFile.Write(content); err != nil {
 		_ = tmpFile.Close()
@@ -187,13 +197,7 @@ func writeConfigFileAtomically(content []byte, targetPath string) error {
 		return fmt.Errorf("failed to close temporary config file: %w", err)
 	}
 
-	if err = os.Chmod(tmpPath, 0600); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("failed to set permissions on temporary config file: %w", err)
-	}
-
 	if err = os.Rename(tmpPath, targetPath); err != nil {
-		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to save config file (rename failed): %w", err)
 	}
 

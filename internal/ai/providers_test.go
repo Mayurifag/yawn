@@ -4,12 +4,48 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/Mayurifag/yawn/internal/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestGeminiHTTPStreamCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+		err  error
+	}{
+		{"done marker", "data: {\"choices\":[{\"delta\":{\"content\":\"fix: complete\"}}]}\n\ndata: [DONE]\n\n", "fix: complete", nil},
+		{"final content with stop", "data: {\"choices\":[{\"delta\":{\"content\":\"fix: complete\"},\"finish_reason\":\"stop\"}]}\n\n", "fix: complete", nil},
+		{"interrupted output", "data: {\"choices\":[{\"delta\":{\"content\":\"fix: incomplete\"}}]}\n\n", "", io.ErrUnexpectedEOF},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			t.Cleanup(server.Close)
+			stream, err := startJSONStream(context.Background(), server.URL, "test-key", struct{}{}, nil, parseGeminiChatEvent)
+			require.NoError(t, err)
+
+			message, err := stream.Collect(nil)
+
+			require.ErrorIs(t, err, tc.err)
+			assert.Equal(t, tc.want, message)
+		})
+	}
+}
+
+func TestParseGeminiChatEventRejectsTruncation(t *testing.T) {
+	_, _, err := parseGeminiChatEvent([]byte(`{"choices":[{"delta":{},"finish_reason":"length"}]}`))
+	assert.ErrorContains(t, err, "length")
+}
 
 func TestParseGeminiChatEvent(t *testing.T) {
 	text, done, err := parseGeminiChatEvent([]byte(`{"choices":[{"delta":{"content":"fix"}}]}`))
@@ -91,7 +127,7 @@ func TestNewClientDoesNotRequireFallbackAPIKey(t *testing.T) {
 	client, err := NewClient(config.Config{
 		MainProvider:     config.ProviderOpenCodeCLI,
 		FallbackProvider: config.ProviderGemini,
-	})
+	}, nil)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, client)

@@ -36,7 +36,9 @@ func (s *httpStream) Collect(onChunk func(string)) (string, error) {
 		if result.text == "" {
 			continue
 		}
-		onChunk(result.text)
+		if onChunk != nil {
+			onChunk(result.text)
+		}
 		sb.WriteString(result.text)
 	}
 	if s.ctx != nil && s.ctx.Err() != nil {
@@ -108,7 +110,9 @@ func scanSSE(ctx context.Context, body io.Reader, ch chan<- streamResult, parse 
 	}
 	if err := scanner.Err(); err != nil {
 		sendStreamResult(ctx, ch, streamResult{err: err})
+		return
 	}
+	sendStreamResult(ctx, ch, streamResult{err: io.ErrUnexpectedEOF})
 }
 
 func sendStreamResult(ctx context.Context, ch chan<- streamResult, result streamResult) {

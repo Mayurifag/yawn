@@ -1,36 +1,50 @@
 package ai
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type fallbackClient struct {
-	primary  Client
-	fallback func() (Client, error)
+	primary    Client
+	fallback   func() (Client, error)
+	onFallback func(error)
 }
 
 type fallbackStream struct {
 	primary  Stream
-	fallback func() (Stream, error)
+	fallback func(error) (Stream, error)
 }
 
 func (c *fallbackClient) GenerateCommitMessageStream(ctx context.Context, systemPrompt, userContent string) (Stream, error) {
 	primaryStream, err := c.primary.GenerateCommitMessageStream(ctx, systemPrompt, userContent)
 	if err != nil {
-		fallback, fallbackErr := c.fallback()
-		if fallbackErr != nil {
-			return nil, err
-		}
-		return fallback.GenerateCommitMessageStream(ctx, systemPrompt, userContent)
+		return c.startFallback(ctx, systemPrompt, userContent, err)
 	}
 	return &fallbackStream{
 		primary: primaryStream,
-		fallback: func() (Stream, error) {
-			fallback, err := c.fallback()
-			if err != nil {
-				return nil, err
-			}
-			return fallback.GenerateCommitMessageStream(ctx, systemPrompt, userContent)
+		fallback: func(err error) (Stream, error) {
+			return c.startFallback(ctx, systemPrompt, userContent, err)
 		},
 	}, nil
+}
+
+func (c *fallbackClient) startFallback(ctx context.Context, systemPrompt, userContent string, primaryErr error) (Stream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if c.onFallback != nil {
+		c.onFallback(primaryErr)
+	}
+	fallback, err := c.fallback()
+	if err == nil {
+		var stream Stream
+		stream, err = fallback.GenerateCommitMessageStream(ctx, systemPrompt, userContent)
+		if err == nil {
+			return stream, nil
+		}
+	}
+	return nil, fmt.Errorf("primary provider failed: %v; fallback provider failed: %w", primaryErr, err)
 }
 
 func (s *fallbackStream) Collect(onChunk func(string)) (string, error) {
@@ -45,9 +59,9 @@ func (s *fallbackStream) Collect(onChunk func(string)) (string, error) {
 	if emitted {
 		return "", err
 	}
-	stream, fallbackErr := s.fallback()
+	stream, fallbackErr := s.fallback(err)
 	if fallbackErr != nil {
-		return "", err
+		return "", fallbackErr
 	}
 	return stream.Collect(onChunk)
 }

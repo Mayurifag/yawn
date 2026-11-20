@@ -14,10 +14,11 @@ func (a *App) ensureSSHRemote() error {
 		return nil
 	}
 
-	currentURL, err := a.GitClient.GetRemoteURL("")
+	target, err := a.GitClient.ResolvePushTarget(a.Config.PushCommand)
 	if err != nil {
-		return nil
+		return err
 	}
+	currentURL := target.URL
 	if !git.IsHTTPSRemoteURL(currentURL) {
 		return nil
 	}
@@ -32,16 +33,16 @@ func (a *App) ensureSSHRemote() error {
 	ui.PrintInfo(fmt.Sprintf("  proposed: %s", sshURL))
 
 	if info, perr := git.ParseRemoteURL(currentURL); perr == nil && !git.IsKnownSSHHost(info.Host) {
-		ui.PrintInfo(fmt.Sprintf("  note: %q is a custom host. If its SSH server uses a non-default port, run `git remote set-url origin ssh://git@%s:PORT/%s/%s.git` after this conversion.", info.Host, info.Host, info.Owner, info.Repo))
+		ui.PrintInfo(fmt.Sprintf("  note: %q is a custom host. If SSH uses a non-default port, set the push URL for %q to ssh://git@%s:PORT/%s/%s.git.", info.Host, target.Remote, info.Host, info.Owner, info.Repo))
 	}
 
-	if !ui.AskYesNo("Convert remote 'origin' to SSH now?", true) {
+	if !ui.AskYesNo(fmt.Sprintf("Convert the push URL for %q to SSH now?", target.Remote), true) {
 		return errors.New("aborted: HTTPS remote not allowed; convert to SSH and retry")
 	}
 
-	if err := a.GitClient.SetRemoteURL("", sshURL); err != nil {
+	if err := a.GitClient.SetRemoteURL(target.Remote, sshURL); err != nil {
 		return fmt.Errorf("failed to switch remote to SSH: %w", err)
 	}
-	ui.PrintSuccess(fmt.Sprintf("Remote 'origin' set to %s", sshURL))
+	ui.PrintSuccess(fmt.Sprintf("Push URL for %q set to %s", target.Remote, sshURL))
 	return nil
 }

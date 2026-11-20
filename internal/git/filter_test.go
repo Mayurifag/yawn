@@ -148,6 +148,16 @@ func TestFormatRedactedSummary_Empty(t *testing.T) {
 	assert.Equal(t, "", formatRedactedSummary(nil))
 }
 
+func TestFormatRedactedSummaryIsBounded(t *testing.T) {
+	files := make([]classifiedFile, 3000)
+	for i := range files {
+		files[i] = classifiedFile{entry: numstatEntry{path: strings.Repeat("x", 100)}, category: catSkipped}
+	}
+	summary := formatRedactedSummary(files)
+	assert.LessOrEqual(t, len(summary), MaxDiffBytes)
+	assert.Contains(t, summary, "more file(s) omitted")
+}
+
 func TestParseCheckAttrOutput(t *testing.T) {
 	out := "foo.go\x00filter\x00unspecified\x00foo.go\x00diff\x00unspecified\x00secrets.yml\x00filter\x00git-crypt\x00"
 	got := parseCheckAttrOutput(out)

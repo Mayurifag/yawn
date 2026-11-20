@@ -20,7 +20,7 @@ func TestRunSquashGenerationFailurePreservesBranch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := a.RunSquash(ctx)
+	err := a.RunSquash(ctx, "")
 
 	require.Error(t, err)
 	assert.Equal(t, original, squashTestGit(t, a, "rev-parse", "HEAD"))
@@ -32,7 +32,7 @@ func TestRunSquashPreservesTree(t *testing.T) {
 	fakeSquashOpenCode(t)
 	tree := squashTestGit(t, a, "rev-parse", "HEAD^{tree}")
 
-	require.NoError(t, a.RunSquash(context.Background()))
+	require.NoError(t, a.RunSquash(context.Background(), ""))
 
 	assert.Equal(t, "1", squashTestGit(t, a, "rev-list", "--count", "master..HEAD"))
 	assert.Equal(t, "feat: squash branch", squashTestGit(t, a, "log", "-1", "--format=%s"))
@@ -47,7 +47,7 @@ func TestRunSquashCommitFailureRestoresBranch(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte("#!/bin/sh\nexit 1\n"), 0o700))
 	squashTestGit(t, a, "config", "core.hooksPath", hooks)
 
-	err := a.RunSquash(context.Background())
+	err := a.RunSquash(context.Background(), "")
 
 	require.ErrorContains(t, err, "failed to commit")
 	assert.Equal(t, original, squashTestGit(t, a, "rev-parse", "HEAD"))

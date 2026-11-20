@@ -1,14 +1,35 @@
 package ui
 
 import (
+	"bufio"
 	"os"
+	"strings"
 	"testing"
 )
+
+func TestPromptsAtEOF(t *testing.T) {
+	oldReader := reader
+	t.Cleanup(func() { reader = oldReader })
+	reader = bufio.NewReader(strings.NewReader(""))
+	if AskYesNo("Stage and push?", true) {
+		t.Fatal("EOF must not approve an action")
+	}
+	if input, err := AskForSecret("API key:"); input != "" || err == nil {
+		t.Fatalf("expected an error at EOF, got %q, %v", input, err)
+	}
+	reader = bufio.NewReader(strings.NewReader("yes"))
+	if !AskYesNo("Proceed?", false) {
+		t.Fatal("explicit input without a final newline must still work")
+	}
+}
 
 func TestPrintPreGenerationInfo(t *testing.T) {
 	oldStdout := os.Stdout
 	os.Stdout, _ = os.Open(os.DevNull)
-	defer func() { os.Stdout = oldStdout }()
+	defer func() {
+		_ = os.Stdout.Close()
+		os.Stdout = oldStdout
+	}()
 
 	testCases := []struct {
 		name       string

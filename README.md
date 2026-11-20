@@ -7,14 +7,14 @@
 
 Writing Git commit messages is small work, but it breaks flow.
 
-`yawn` turns the end of a coding session into one command: stage the diff, ask 
-**FREE** AI for a commit message, commit, push, and print the PR link.
+`yawn` turns the end of a coding session into one command: stage the diff, ask **FREE** AI for a commit message, commit,
+push, and print the PR link.
 
 ## Why install it?
 
 Because this is annoying:
 
-~~~sh
+```sh
 git add .
 git diff --cached
 git commit -m "fix: something probably"
@@ -22,10 +22,9 @@ git push origin HEAD
 open the repo
 find the branch
 open the PR page
-~~~
+```
 
-This is less annoying: `q` (alias from `yawn`). Imagine effort you save every 
-day compounded.
+This is less annoying: `q` (alias from `yawn`). Imagine effort you save every day compounded.
 
 `yawn` handles the common Git chores:
 
@@ -35,7 +34,7 @@ day compounded.
 - prints GitHub or GitLab PR links after push
 - squashes a branch into one AI-named commit
 - previews force-push divergence before pushing
-- redacts secrets, lockfiles, binaries, and skipped paths before asking AI
+- omits encrypted files, lockfiles, binaries, and skipped paths before asking AI
 - reads global config, project config, env vars, and CLI flags
 
 It also handles the little workflow annoyances:
@@ -46,71 +45,77 @@ It also handles the little workflow annoyances:
 - shows unpushed commits when there is nothing new to commit
 - asks what to do with dirty files before squashing
 
-It is a single Go binary. No daemon, no editor plugin, no extra service to keep 
-alive.
+It is a single Go binary. No daemon, no editor plugin, no extra service to keep alive.
 
 ## Install
 
-~~~sh
+Requires Git 2.43 or later. The `opencode_cli` provider also requires OpenCode V2.
+
+```sh
 mise use -g github:Mayurifag/yawn@latest
-~~~
+```
 
 Or download a release binary, put it somewhere on `PATH`, and make it executable.
 
 From source:
 
-~~~sh
+```sh
 make install
-~~~
+```
 
 Generate a config:
 
-~~~sh
+```sh
 mkdir -p ~/.config/yawn
 yawn --generate-config > ~/.config/yawn/config.toml
-~~~
+```
 
 Add a provider, then try it in a repo with changes:
 
-~~~sh
+```sh
 yawn
-~~~
+```
 
 Useful aliases:
 
-~~~sh
+```sh
 alias q="yawn"
 alias sq="yawn squash"
 alias gpf="yawn force-push"
-~~~
+```
 
 ## Commands
 
-| Command           | What it does                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------ |
-| `yawn`            | Stage if needed, generate a commit message, commit, and optionally push.             |
-| `yawn squash`     | Squash branch commits since `main`, `master`, or `dev` into one AI-generated commit. |
-| `yawn force-push` | Show divergence, ask for confirmation, then run a safer force push.                  |
+| Command           | What it does                                                             |
+| ----------------- | ------------------------------------------------------------------------ |
+| `yawn`            | Stage if needed, generate a commit message, commit, and optionally push. |
+| `yawn squash`     | Squash commits since the branch's creation parent, or use `--base REF`.  |
+| `yawn force-push` | Show divergence, ask for confirmation, then run a safer force push.      |
 
-If there are no local changes but unpushed commits exist, `yawn` lists them and offers to push. After a successful push from a non-default branch, it prints a PR creation link using the branch base detected from Git.
+If there are no local changes but unpushed commits exist, `yawn` lists them and offers to push. After a successful push
+from a non-default branch, it prints a PR creation link using the branch base detected from Git.
+
+If Git no longer has the branch-creation reflog, specify the base: `yawn squash --base main`. Yawn does not choose a
+base from unrelated ancestor or backup branches.
 
 ## Configuration
 
-Config is read from `~/.config/yawn/config.toml`, then project `.yawn.toml` files, environment variables, and CLI flags. Later sources win.
+Config is read from `~/.config/yawn/config.toml`, then project `.yawn.toml` files, environment variables, and CLI flags.
+Later sources win.
 
 Default setup uses Gemini:
 
-~~~toml
+```toml
 main_provider = "gemini"
 
 [providers.gemini]
 api_key = "YOUR_GOOGLE_AI_STUDIO_KEY"
 model = "gemini-flash-latest"
-~~~
+```
 
 Or use your local OpenCode login:
 
-~~~toml
+```toml
 main_provider = "opencode_cli"
 fallback_provider = "gemini"
 
@@ -120,7 +125,7 @@ model = "PROVIDER/MODEL"
 [providers.gemini]
 api_key = "YOUR_GOOGLE_AI_STUDIO_KEY"
 model = "gemini-flash-latest"
-~~~
+```
 
 Prepare OpenCode once with `opencode providers login` and `opencode models`.
 
@@ -128,8 +133,13 @@ For every option, run `yawn --generate-config` or see [configuration reference](
 
 ## Safety
 
-`yawn` redacts likely-sensitive or noisy file contents before sending diffs to the AI provider. It sends only `path: category, +adds -dels` for git-crypt files, encrypted files, lockfiles, binary files, and files marked with `.gitattributes` `yawn=skip`.
+`yawn` omits file contents based on attributes and file types, not a general secret scanner. It sends only
+`path: category, +adds -dels` for git-crypt files, encrypted files, lockfiles, binary files, and files marked with
+`.gitattributes` `yawn=skip`. It checks the working tree, index, HEAD, and diff base so removing an attribute rule does
+not expose the old content. Unmarked plaintext secrets can still reach the provider; mark those files with `yawn=skip`.
 
-HTTPS remotes can be converted to SSH, pushes use retries with per-attempt timeouts, and force-pushes show a divergence preview before proceeding.
+HTTPS push URLs can be converted to SSH. Before pushing, yawn inspects the actual destination and fetches its tip for
+the preview. Force-pushes use an explicit lease tied to that tip, so a later remote change is rejected even if a
+background fetch updates local tracking refs. Previews and links use the configured push remote and destination branch.
 
 It still lets you do dangerous Git things. It just makes you look first.

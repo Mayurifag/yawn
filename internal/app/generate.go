@@ -14,17 +14,22 @@ const maxCommitGenRetries = 3
 
 var errRequestTimeout = errors.New("request timeout")
 
-func (a *App) doGenerateStream(ctx context.Context, aiClient ai.Client, systemPrompt, userContent string) (string, error) {
-	ctxTimeout, cancel := context.WithTimeout(ctx, a.Config.GetRequestTimeout())
-	defer cancel()
+func (a *App) newAIClient() (ai.Client, error) {
+	return ai.NewClient(a.Config, func(err error) {
+		provider := a.Config.GetFallbackProvider()
+		ui.PrintInfo(fmt.Sprintf("Primary provider failed: %v", err))
+		ui.PrintInfo(fmt.Sprintf("Trying fallback provider: %s/%s", provider, a.Config.GetProviderConfig(provider).Model))
+	})
+}
 
+func (a *App) doGenerateStream(ctx context.Context, aiClient ai.Client, systemPrompt, userContent string) (string, error) {
 	spinner := ui.StartSpinner("Generating commit message...")
-	stream, err := aiClient.GenerateCommitMessageStream(ctxTimeout, systemPrompt, userContent)
+	stream, err := aiClient.GenerateCommitMessageStream(ctx, systemPrompt, userContent)
 	ui.StopSpinner(spinner)
 
 	if err != nil {
-		if errors.Is(ctxTimeout.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
-			return "", fmt.Errorf("commit message generation timed out after %s: %w", a.Config.GetRequestTimeout(), errRequestTimeout)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			return "", fmt.Errorf("provider request timed out after %s: %w: %w", a.Config.GetRequestTimeout(), errRequestTimeout, err)
 		}
 		return "", fmt.Errorf("failed to start commit message generation: %w", err)
 	}
@@ -33,8 +38,8 @@ func (a *App) doGenerateStream(ctx context.Context, aiClient ai.Client, systemPr
 	message, err := stream.Collect(func(chunk string) { fmt.Print(chunk) })
 	fmt.Println()
 	if err != nil {
-		if errors.Is(ctxTimeout.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
-			return "", fmt.Errorf("commit message generation timed out after %s: %w", a.Config.GetRequestTimeout(), errRequestTimeout)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			return "", fmt.Errorf("provider request timed out after %s: %w: %w", a.Config.GetRequestTimeout(), errRequestTimeout, err)
 		}
 		return "", fmt.Errorf("error receiving commit message stream: %w", err)
 	}

@@ -2,7 +2,9 @@ package ui
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -36,8 +38,11 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 
 	fmt.Printf("%s%s %s ", promptPrefix, prompt, hint)
 
-	input, _ := reader.ReadString('\n')
+	input, err := reader.ReadString('\n')
 	input = strings.ToLower(strings.TrimSpace(input))
+	if input == "" && err != nil {
+		return false
+	}
 
 	result := defaultYes
 	if input != "" {
@@ -48,16 +53,38 @@ func AskYesNo(prompt string, defaultYes bool) bool {
 	return result
 }
 
-func AskForInput(prompt string, required bool) string {
+func AskForSecret(prompt string) (secret string, err error) {
+	var terminal *term.Terminal
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		state, rawErr := term.MakeRaw(int(os.Stdin.Fd()))
+		if rawErr != nil {
+			return "", fmt.Errorf("disabling terminal echo: %w", rawErr)
+		}
+		defer func() {
+			if restoreErr := term.Restore(int(os.Stdin.Fd()), state); restoreErr != nil {
+				err = errors.Join(err, fmt.Errorf("restoring terminal: %w", restoreErr))
+			}
+		}()
+		terminal = term.NewTerminal(struct {
+			io.Reader
+			io.Writer
+		}{os.Stdin, os.Stdout}, "")
+	}
 	for {
-		fmt.Printf("%s%s ", promptPrefix, prompt)
-
-		input, _ := reader.ReadString('\n')
+		var input string
+		if terminal != nil {
+			input, err = terminal.ReadPassword(promptPrefix + prompt + " ")
+		} else {
+			fmt.Printf("%s%s ", promptPrefix, prompt)
+			input, err = reader.ReadString('\n')
+		}
 		input = strings.TrimSpace(input)
-
-		if input != "" || !required {
+		if input != "" {
 			ClearLine()
-			return input
+			return input, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("reading API key: %w", err)
 		}
 		PrintError("Input cannot be empty.")
 	}

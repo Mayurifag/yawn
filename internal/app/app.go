@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Mayurifag/yawn/internal/ai"
 	"github.com/Mayurifag/yawn/internal/config"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/Mayurifag/yawn/internal/ui"
@@ -63,9 +62,9 @@ func (a *App) ensureAPIKey() error {
 		providerName := config.ProviderDisplayName(provider)
 		ui.PrintInfo(fmt.Sprintf("No API key found for %s.", providerName))
 		ui.PrintInfo(config.ProviderAPIKeyHelp(provider))
-		apiKey := ui.AskForInput(fmt.Sprintf("Enter your %s API key: ", providerName), true)
-		if apiKey == "" {
-			return fmt.Errorf("API key is required")
+		apiKey, err := ui.AskForSecret(fmt.Sprintf("Enter your %s API key: ", providerName))
+		if err != nil {
+			return err
 		}
 		if err := config.SaveProviderAPIKeyToUserConfig(provider, apiKey); err != nil {
 			ui.PrintError(fmt.Sprintf("Warning: Failed to save API key to config file: %v", err))
@@ -73,17 +72,6 @@ func (a *App) ensureAPIKey() error {
 		a.Config.SetAPIKey(apiKey)
 	}
 	return nil
-}
-
-func (a *App) setupAndCheckPrerequisites() (bool, error) {
-	if err := a.ensureAPIKey(); err != nil {
-		return false, err
-	}
-	hasChanges, err := a.GitClient.HasAnyChanges()
-	if err != nil {
-		return false, fmt.Errorf("failed to check for changes: %w", err)
-	}
-	return hasChanges, nil
 }
 
 func (a *App) ensureStagedChanges() error {
@@ -133,7 +121,7 @@ func (a *App) generateAndCommitChanges(ctx context.Context) error {
 		return fmt.Errorf("no staged changes to commit")
 	}
 
-	aiClient, err := ai.NewClient(a.Config)
+	aiClient, err := a.newAIClient()
 	if err != nil {
 		return fmt.Errorf("failed to create AI client: %w", err)
 	}
@@ -178,12 +166,15 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.ensureSSHRemote(); err != nil {
 		return err
 	}
-	hasChanges, err := a.setupAndCheckPrerequisites()
+	hasChanges, err := a.GitClient.HasAnyChanges()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to check for changes: %w", err)
 	}
 	if !hasChanges {
 		return a.handleUnpushedCommits()
+	}
+	if err := a.ensureAPIKey(); err != nil {
+		return err
 	}
 
 	if err := a.ensureStagedChanges(); err != nil {

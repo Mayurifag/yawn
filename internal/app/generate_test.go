@@ -53,3 +53,16 @@ func TestGenerateCommitMessageRetriesStreamDeadline(t *testing.T) {
 	assert.Equal(t, "fix: retry deadline", message)
 	assert.Equal(t, 2, client.calls)
 }
+
+func TestGenerateTimeoutPreservesProviderError(t *testing.T) {
+	providerErr := errors.New("fallback provider timed out")
+	client := &fakeAIClient{streams: []ai.Stream{
+		fakeAIStream{err: errors.Join(context.DeadlineExceeded, providerErr)},
+	}}
+	a := &App{Config: config.Config{RequestTimeoutSeconds: 30}}
+
+	_, err := a.doGenerateStream(context.Background(), client, "", "")
+
+	require.ErrorIs(t, err, errRequestTimeout)
+	assert.ErrorIs(t, err, providerErr)
+}

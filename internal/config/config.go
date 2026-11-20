@@ -6,7 +6,6 @@ import (
 )
 
 const (
-	AppName                 = "yawn"
 	ProjectConfigName       = ".yawn.toml"
 	UserConfigDirName       = "yawn"
 	UserConfigFileName      = "config.toml"

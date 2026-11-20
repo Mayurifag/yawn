@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -189,7 +190,7 @@ func mergeConfig(base *Config, loaded Config, meta toml.MetaData, src string) {
 			continue
 		}
 		if field.Name == "Providers" {
-			mergeProviders(base, loaded.Providers)
+			mergeProviders(base, loaded.Providers, meta)
 			base.sources[field.Name] = src
 			continue
 		}
@@ -198,35 +199,37 @@ func mergeConfig(base *Config, loaded Config, meta toml.MetaData, src string) {
 	}
 }
 
-func mergeProviders(base *Config, loadedProviders map[string]ProviderConfig) {
+func mergeProviders(base *Config, loadedProviders map[string]ProviderConfig, meta toml.MetaData) {
 	if base.Providers == nil {
 		base.Providers = map[string]ProviderConfig{}
 	}
 	for provider, loadedProvider := range loadedProviders {
-		provider = NormalizeProvider(provider)
-		providerCfg := base.Providers[provider]
-		if loadedProvider.APIKey != "" {
+		name := NormalizeProvider(provider)
+		providerCfg := base.Providers[name]
+		if meta.IsDefined("providers", provider, "api_key") {
 			providerCfg.APIKey = loadedProvider.APIKey
 		}
-		if loadedProvider.Model != "" {
+		if meta.IsDefined("providers", provider, "model") {
 			providerCfg.Model = loadedProvider.Model
 		}
-		base.Providers[provider] = providerCfg
+		base.Providers[name] = providerCfg
 	}
 }
 
-func loadConfigFromEnv(cfg *Config) {
+func loadConfigFromEnv(cfg *Config) error {
 	for _, f := range envFields {
-		if v := os.Getenv(f.envKey); v != "" {
-			if f.apply(cfg, v) {
-				cfg.sources[f.srcKey] = "env"
+		if v, exists := os.LookupEnv(f.envKey); exists {
+			if !f.apply(cfg, v) {
+				return fmt.Errorf("invalid value for %s", f.envKey)
 			}
+			cfg.sources[f.srcKey] = "env"
 		}
 	}
+	return nil
 }
 
 func applyFlags(cfg *Config, flags CLIFlags) {
-	if flags.APIKey != nil && *flags.APIKey != "" {
+	if flags.APIKey != nil {
 		cfg.SetAPIKey(*flags.APIKey)
 		cfg.sources["Providers"] = "flag"
 	}
@@ -269,8 +272,13 @@ func LoadConfig(projectPath string, flags CLIFlags) (Config, error) {
 		mergeConfig(&cfg, projectCfg, projectMeta, "project")
 	}
 
-	loadConfigFromEnv(&cfg)
+	if err := loadConfigFromEnv(&cfg); err != nil {
+		return cfg, err
+	}
 	applyFlags(&cfg, flags)
+	if cfg.RequestTimeoutSeconds <= 0 || int64(cfg.RequestTimeoutSeconds) > (1<<63-1)/int64(time.Second) {
+		return cfg, fmt.Errorf("request_timeout_seconds must be positive and fit in a time.Duration")
+	}
 
 	return cfg, nil
 }

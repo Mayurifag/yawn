@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Mayurifag/yawn/internal/ai"
 	"github.com/Mayurifag/yawn/internal/git"
 	"github.com/Mayurifag/yawn/internal/ui"
 )
@@ -40,17 +39,20 @@ func (a *App) handleDirtyState() (dirtyAction, error) {
 	}
 }
 
-func (a *App) squashSetup() (base string, count int, err error) {
+func (a *App) squashSetup(baseRef string) (base string, count int, err error) {
 	branch, err := a.GitClient.GetCurrentBranch()
 	if err != nil {
 		return
 	}
-	defaultBranch, _ := a.GitClient.GetDefaultBranch()
+	if branch == "HEAD" {
+		return "", 0, fmt.Errorf("squash: check out a branch before squashing")
+	}
+	defaultBranch, _ := a.GitClient.GetDefaultBranch("")
 	if defaultBranch != "" && branch == defaultBranch {
 		err = fmt.Errorf("squash: cannot squash on default branch %q", branch)
 		return
 	}
-	base, err = a.GitClient.FindBranchBase(branch)
+	base, err = a.GitClient.FindBranchBase(branch, baseRef)
 	if err != nil {
 		return
 	}
@@ -59,27 +61,12 @@ func (a *App) squashSetup() (base string, count int, err error) {
 }
 
 func (a *App) printSquashLinks() {
-	remoteURL, err := a.GitClient.GetRemoteURL("")
+	target, err := a.GitClient.ResolvePushTarget(a.Config.PushCommand)
 	if err != nil {
 		return
 	}
-	remoteInfo, err := git.ParseRemoteURL(remoteURL)
-	if err != nil {
-		return
-	}
-	repoLink := git.GenerateRepoLink(remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo)
-	var suggestPRLink string
-	var prLink string
-	if branch, err := a.GitClient.GetCurrentBranch(); err == nil {
-		defaultBranch, _ := a.GitClient.GetDefaultBranch()
-		if branch != defaultBranch {
-			prLink = git.FindPullRequestURL(a.GitClient, remoteInfo.Host, branch)
-			if prLink == "" {
-				suggestPRLink = git.GeneratePRURL(a.GitClient, remoteInfo.Host, remoteInfo.Owner, remoteInfo.Repo, branch)
-			}
-		}
-	}
-	printLinks(repoLink, prLink, suggestPRLink)
+	links := git.PushLinks(a.GitClient, target)
+	printLinks(links.RepoLink, links.PRLink, links.SuggestPRLink)
 }
 
 func (a *App) handleSingleCommit(ctx context.Context, base string) error {
@@ -125,7 +112,7 @@ func (a *App) generateSquashMessage(ctx context.Context, base string) (string, e
 		return "", fmt.Errorf("no branch changes to commit")
 	}
 
-	aiClient, err := ai.NewClient(a.Config)
+	aiClient, err := a.newAIClient()
 	if err != nil {
 		return "", fmt.Errorf("failed to create AI client: %w", err)
 	}
@@ -198,12 +185,12 @@ func (a *App) handleMultiCommitSquash(ctx context.Context, base string, count in
 	return a.handleSquashPush()
 }
 
-func (a *App) RunSquash(ctx context.Context) error {
+func (a *App) RunSquash(ctx context.Context, baseRef string) error {
 	if err := a.ensureSSHRemote(); err != nil {
 		return err
 	}
 
-	base, count, err := a.squashSetup()
+	base, count, err := a.squashSetup(baseRef)
 	if err != nil {
 		return err
 	}

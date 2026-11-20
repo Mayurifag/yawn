@@ -9,6 +9,88 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadConfigRejectsInvalidTimeout(t *testing.T) {
+	setupXDGConfig(t, "")
+	for _, value := range []string{"0", "-1", "not-a-number", "9223372037"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("YAWN_REQUEST_TIMEOUT_SECONDS", value)
+			_, err := LoadConfig(t.TempDir(), CLIFlags{})
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestLoadConfigRejectsInvalidBooleanOverrides(t *testing.T) {
+	setupXDGConfig(t, "auto_push = true\nsquash_auto_push = true\n")
+	for _, key := range []string{"YAWN_AUTO_PUSH", "YAWN_AUTO_STAGE", "YAWN_SQUASH_AUTO_PUSH", "YAWN_WAIT_FOR_SSH_KEYS"} {
+		for _, value := range []string{"no", ""} {
+			t.Run(key+"="+value, func(t *testing.T) {
+				t.Setenv(key, value)
+				_, err := LoadConfig(t.TempDir(), CLIFlags{})
+				require.ErrorContains(t, err, "invalid value for "+key)
+			})
+		}
+	}
+}
+
+func TestSaveAPIKeyPreservesConfigSettings(t *testing.T) {
+	setupXDGConfig(t, `main_provider = "gemini"
+prompt = '''
+api_key = "example inside prompt"
+[providers.gemini]
+'''
+[providers.gemini]
+model = "custom-model"
+`)
+	err := SaveProviderAPIKeyToUserConfig(ProviderGemini, "new-key")
+	// This layout cannot be safely edited by the line-based writer.
+	require.Error(t, err)
+	cfg, err := LoadConfig(t.TempDir(), CLIFlags{})
+	require.NoError(t, err)
+	assert.Contains(t, cfg.Prompt, `api_key = "example inside prompt"`)
+	assert.Equal(t, "custom-model", cfg.GetModel())
+	assert.Empty(t, cfg.GetAPIKey())
+}
+
+func TestSaveAPIKeyUpdatesStandardConfig(t *testing.T) {
+	setupXDGConfig(t, "")
+	require.NoError(t, SaveProviderAPIKeyToUserConfig(ProviderGemini, "first-key"))
+	require.NoError(t, SaveProviderAPIKeyToUserConfig(ProviderGemini, "second-key"))
+	cfg, err := LoadConfig(t.TempDir(), CLIFlags{})
+	require.NoError(t, err)
+	assert.Equal(t, "second-key", cfg.GetAPIKey())
+}
+
+func TestExplicitEmptyOverrides(t *testing.T) {
+	setupXDGConfig(t, `fallback_provider = "gemini"
+[providers.gemini]
+api_key = "user-key"
+model = "user-model"
+`)
+	project := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(project, ProjectConfigName), []byte(`[providers.gemini]
+api_key = ""
+model = ""
+`), 0o600))
+	cfg, err := LoadConfig(project, CLIFlags{})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.GetAPIKey())
+	assert.Equal(t, DefaultGeminiModel, cfg.GetModel())
+
+	t.Setenv("YAWN_FALLBACK_PROVIDER", "")
+	t.Setenv("YAWN_GEMINI_API_KEY", "")
+	cfg, err = LoadConfig(t.TempDir(), CLIFlags{})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.GetFallbackProvider())
+	assert.Empty(t, cfg.GetAPIKey())
+
+	t.Setenv("YAWN_GEMINI_API_KEY", "env-key")
+	key := ""
+	cfg, err = LoadConfig(t.TempDir(), CLIFlags{APIKey: &key})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.GetAPIKey())
+}
+
 func setupXDGConfig(t *testing.T, content string) {
 	t.Helper()
 	xdgDir := t.TempDir()

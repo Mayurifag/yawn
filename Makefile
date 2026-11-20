@@ -1,4 +1,4 @@
-.PHONY: all build install install-release uninstall clean ci fmt lint test coverage release rerelease _create_tag
+.PHONY: all build install install-release uninstall clean ci fmt check-fmt vet lint test test-race coverage release rerelease _create_tag
 
 # Variables
 APP_NAME := yawn
@@ -27,13 +27,12 @@ GOFMT := $(GO) fmt
 GOLINT := $(GO) tool golangci-lint run
 GOTEST := $(GO) test
 GOTOOL := $(GO) tool
-GORUN := $(GO) run
 
 # Default target
 all: build
 
 # Build the application
-build: ci
+build:
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(OUTPUT_DIR)/$(APP_NAME) $(CMD_PATH)
 
 # Install the application to GOBIN
@@ -84,10 +83,17 @@ clean:
 	$(GOCLEAN)
 	rm -f $(OUTPUT_DIR)/$(APP_NAME) coverage.*
 
-ci: fmt lint test
+ci: check-fmt vet lint test
 
 fmt:
 	$(GOFMT) ./...
+
+check-fmt:
+	@set -e; files=$$(gofmt -l cmd internal); \
+	if [ -n "$$files" ]; then echo "Run make fmt for:"; echo "$$files"; exit 1; fi
+
+vet:
+	$(GO) vet ./...
 
 # Lint code
 lint:
@@ -96,6 +102,9 @@ lint:
 # Run tests
 test:
 	$(GOTEST) ./...
+
+test-race:
+	$(GOTEST) -race -cover ./...
 
 # Run tests with coverage report
 coverage:

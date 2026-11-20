@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/Mayurifag/yawn/internal/config"
@@ -9,16 +11,58 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWaitForSSHKeysConfig(t *testing.T) {
-	cfg := config.Config{WaitForSSHKeys: true}
-	if !cfg.WaitForSSHKeys {
-		t.Error("WaitForSSHKeys should be true when set")
-	}
+func TestRunCleanRepositoryDoesNotNeedAPIKey(t *testing.T) {
+	a := NewApp(config.Config{}, &git.MockGitClient{MockHasRemotes: func() (bool, error) { return false, nil }})
+	require.NoError(t, a.Run(context.Background()))
+}
 
-	emptyCfg := config.Config{}
-	if emptyCfg.WaitForSSHKeys != config.DefaultWaitForSSHKeys {
-		t.Errorf("Default WaitForSSHKeys should be %v, got %v", config.DefaultWaitForSSHKeys, emptyCfg.WaitForSSHKeys)
-	}
+func TestHandleUnpushedCommitsWithoutUpstream(t *testing.T) {
+	checked := false
+	pushed := false
+	a := NewApp(config.Config{AutoPush: true, PushCommand: config.DefaultPushCommand}, &git.MockGitClient{
+		MockPreparePush: func(command string) (*git.PushPlan, error) {
+			checked = true
+			assert.Equal(t, config.DefaultPushCommand, command)
+			return &git.PushPlan{Target: git.PushTarget{Remote: "origin", Branch: "feature"}, LocalCommits: []string{"local commit"}}, nil
+		},
+		MockPush: func(plan *git.PushPlan, force bool) (string, error) {
+			pushed = true
+			assert.Equal(t, "feature", plan.Target.Branch)
+			assert.False(t, force)
+			return "", nil
+		},
+	})
+
+	require.NoError(t, a.handleUnpushedCommits())
+	assert.True(t, checked, "unpublished branches must be inspected")
+	assert.True(t, pushed)
+}
+
+func TestRejectedForcePushDoesNotPromptAgain(t *testing.T) {
+	calls := 0
+	a := NewApp(config.Config{}, &git.MockGitClient{
+		MockPush: func(*git.PushPlan, bool) (string, error) {
+			calls++
+			return "", &git.GitError{Output: "rejected (non-fast-forward)"}
+		},
+	})
+
+	err := a.doPush(&git.PushPlan{}, true)
+
+	require.ErrorContains(t, err, "non-fast-forward")
+	assert.Equal(t, 1, calls)
+}
+
+func TestPreviewFailurePreventsPush(t *testing.T) {
+	failure := errors.New("destination cannot be read")
+	a := NewApp(config.Config{AutoPush: true}, &git.MockGitClient{
+		MockPreparePush: func(string) (*git.PushPlan, error) { return nil, failure },
+		MockPush: func(*git.PushPlan, bool) (string, error) {
+			t.Fatal("must not push without a successful preview")
+			return "", nil
+		},
+	})
+	require.ErrorIs(t, a.handlePushOperation(), failure)
 }
 
 func TestEnsureStagedChanges(t *testing.T) {

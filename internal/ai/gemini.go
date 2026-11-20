@@ -60,11 +60,14 @@ func parseGeminiChatEvent(data []byte) (string, bool, error) {
 		return "", false, fmt.Errorf("provider stream error: %s", event.Error.Message)
 	}
 	for _, choice := range event.Choices {
+		if choice.FinishReason != nil {
+			if *choice.FinishReason != "stop" {
+				return "", false, fmt.Errorf("provider ended generation with finish reason %q", *choice.FinishReason)
+			}
+			return choice.Delta.Content, true, nil
+		}
 		if choice.Delta.Content != "" {
 			return choice.Delta.Content, false, nil
-		}
-		if choice.FinishReason != nil {
-			return "", true, nil
 		}
 	}
 	return "", false, nil

@@ -21,6 +21,7 @@ var (
 	flagAutoStage      bool
 	flagAutoPush       bool
 	flagGenerateConfig bool
+	flagSquashBase     string
 )
 
 func main() {
@@ -31,6 +32,7 @@ func main() {
 
 var rootCmd = &cobra.Command{
 	Use:   "yawn",
+	Args:  cobra.NoArgs,
 	Short: "yawn 🥱 - AI Git Commiter",
 	Long: "Yawn analyzes your staged Git changes, sends them to a configured AI\n" +
 		"provider, and generates a conventional commit message.\n\n" +
@@ -40,24 +42,17 @@ var rootCmd = &cobra.Command{
 	Version: version,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if flagGenerateConfig {
-			content, err := config.GenerateConfigContent("")
-			if err != nil {
-				ui.PrintError(fmt.Sprintf("Error generating default config: %v", err))
-				return err
-			}
-			fmt.Print(string(content))
+			fmt.Print(string(config.GenerateConfigContent()))
 			return nil
 		}
 
 		projectPath, err := os.Getwd()
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Error getting current directory: %v", err))
-			return err
+			return fmt.Errorf("getting current directory: %w", err)
 		}
 
 		gitClient, err := git.NewExecGitClient()
 		if err != nil {
-			ui.PrintError(err.Error())
 			return err
 		}
 
@@ -74,32 +69,26 @@ var rootCmd = &cobra.Command{
 
 		cfg, err := config.LoadConfig(projectPath, flags)
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
-			return err
+			return fmt.Errorf("loading configuration: %w", err)
 		}
 
 		yawnApp := app.NewApp(cfg, gitClient)
-		if err := yawnApp.Run(cmd.Context()); err != nil {
-			ui.PrintError(err.Error())
-			os.Exit(1)
-		}
-		return nil
+		return yawnApp.Run(cmd.Context())
 	},
 }
 
 var forcePushCmd = &cobra.Command{
 	Use:   "force-push",
+	Args:  cobra.NoArgs,
 	Short: "Force-push current branch with --force-with-lease and print repo/PR links",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectPath, err := os.Getwd()
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Error getting current directory: %v", err))
-			return err
+			return fmt.Errorf("getting current directory: %w", err)
 		}
 
 		gitClient, err := git.NewExecGitClient()
 		if err != nil {
-			ui.PrintError(err.Error())
 			return err
 		}
 
@@ -110,47 +99,36 @@ var forcePushCmd = &cobra.Command{
 
 		cfg, err := config.LoadConfig(projectPath, flags)
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
-			return err
+			return fmt.Errorf("loading configuration: %w", err)
 		}
 
 		yawnApp := app.NewApp(cfg, gitClient)
-		if err := yawnApp.RunForcePush(); err != nil {
-			ui.PrintError(err.Error())
-			os.Exit(1)
-		}
-		return nil
+		return yawnApp.RunForcePush()
 	},
 }
 
 var squashCmd = &cobra.Command{
 	Use:   "squash",
+	Args:  cobra.NoArgs,
 	Short: "Squash all commits on current branch into one AI-generated commit",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectPath, err := os.Getwd()
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Error getting current directory: %v", err))
-			return err
+			return fmt.Errorf("getting current directory: %w", err)
 		}
 
 		gitClient, err := git.NewExecGitClient()
 		if err != nil {
-			ui.PrintError(err.Error())
 			return err
 		}
 
 		cfg, err := config.LoadConfig(projectPath, config.CLIFlags{})
 		if err != nil {
-			ui.PrintError(fmt.Sprintf("Error loading configuration: %v", err))
-			return err
+			return fmt.Errorf("loading configuration: %w", err)
 		}
 
 		yawnApp := app.NewApp(cfg, gitClient)
-		if err := yawnApp.RunSquash(cmd.Context()); err != nil {
-			ui.PrintError(err.Error())
-			os.Exit(1)
-		}
-		return nil
+		return yawnApp.RunSquash(cmd.Context(), flagSquashBase)
 	},
 }
 
@@ -186,6 +164,7 @@ func init() {
 
 	rootCmd.SetVersionTemplate(`{{printf "%s version %s\n" .Name .Version}}`)
 	rootCmd.AddCommand(squashCmd)
+	squashCmd.Flags().StringVar(&flagSquashBase, "base", "", "Squash commits since the merge-base with this branch or commit")
 
 	forcePushCmd.Flags().BoolVar(&flagAutoPush, "auto-push", false, "Force-push without confirmation prompt")
 	rootCmd.AddCommand(forcePushCmd)

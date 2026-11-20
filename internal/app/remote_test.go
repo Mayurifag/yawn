@@ -25,9 +25,9 @@ func TestEnsureSSHRemote_AlreadySSH(t *testing.T) {
 	a := &App{
 		Config: config.Config{},
 		GitClient: &git.MockGitClient{
-			MockHasRemotes:   func() (bool, error) { return true, nil },
-			MockGetRemoteURL: func(string) (string, error) { return "git@github.com:o/r.git", nil },
-			MockSetRemoteURL: func(string, string) error { called = true; return nil },
+			MockHasRemotes:        func() (bool, error) { return true, nil },
+			MockResolvePushTarget: func(string) (git.PushTarget, error) { return git.PushTarget{URL: "git@github.com:o/r.git"}, nil },
+			MockSetRemoteURL:      func(string, string) error { called = true; return nil },
 		},
 	}
 	if err := a.ensureSSHRemote(); err != nil {

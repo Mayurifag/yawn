@@ -122,14 +122,19 @@ func formatRedactedSummary(redacted []classifiedFile) string {
 	}
 	var b strings.Builder
 	b.WriteString("### Files redacted from diff (summary only):\n")
-	for _, r := range redacted {
+	for i, r := range redacted {
 		var stat string
 		if r.entry.binary {
 			stat = "binary"
 		} else {
 			stat = fmt.Sprintf("+%s -%s", r.entry.additions, r.entry.deletions)
 		}
-		fmt.Fprintf(&b, "- %s: %s, %s\n", r.entry.path, r.category.label(), stat)
+		line := fmt.Sprintf("- %s: %s, %s\n", r.entry.path, r.category.label(), stat)
+		if b.Len()+len(line) > MaxDiffBytes-80 {
+			fmt.Fprintf(&b, "... %d more file(s) omitted.\n", len(redacted)-i)
+			break
+		}
+		b.WriteString(line)
 	}
 	return b.String()
 }

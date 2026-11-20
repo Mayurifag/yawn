@@ -6,74 +6,46 @@ import (
 	"strings"
 )
 
-func (c *ExecGitClient) FindBranchBase(branch string) (string, error) {
-	if _, base := c.findBranchBaseFromRefs(branch); base != "" {
-		return base, nil
-	}
-
-	output, err := c.runGitCommand("reflog", "HEAD", "--format=%H %gs")
-	if err != nil {
-		return "", fmt.Errorf("failed to read reflog: %w", err)
-	}
-	suffix := " to " + branch
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "checkout:") && strings.HasSuffix(line, suffix) {
-			if parts := strings.Fields(line); len(parts) > 0 {
-				return parts[0], nil
-			}
+func (c *ExecGitClient) FindBranchBase(branch, ref string) (string, error) {
+	if ref == "" {
+		var err error
+		ref, err = c.branchBaseRef(branch)
+		if err != nil {
+			return "", err
+		}
+		if base, err := c.runGitCommand("merge-base", "--fork-point", ref, "HEAD"); err == nil {
+			return base, nil
 		}
 	}
-	return "", fmt.Errorf("cannot determine branch base for %q: no merge-base with default branch and no checkout entry in reflog", branch)
+	commit, err := c.runGitCommand("rev-parse", "--verify", "--end-of-options", ref+"^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("invalid squash base %q: %w", ref, err)
+	}
+	return c.runGitCommand("merge-base", commit, "HEAD")
 }
 
 func (c *ExecGitClient) FindBranchBaseRef(branch string) (string, error) {
-	ref, _ := c.findBranchBaseFromRefs(branch)
-	if ref == "" {
-		return "", fmt.Errorf("cannot determine branch base ref for %q", branch)
-	}
-	return strings.TrimPrefix(ref, "origin/"), nil
-}
-
-func (c *ExecGitClient) findBranchBaseFromRefs(branch string) (string, string) {
-	bestRef := ""
-	bestBase := ""
-	bestDistance := -1
-	seen := make(map[string]bool)
-	for _, ref := range c.branchBaseCandidateRefs(branch) {
-		if seen[ref] {
-			continue
-		}
-		seen[ref] = true
-		base := c.mergeBase(ref)
-		if base == "" {
-			continue
-		}
-		distance, err := c.GetCommitCountRange(base)
-		if err != nil {
-			continue
-		}
-		if bestDistance == -1 || distance < bestDistance {
-			bestRef = ref
-			bestBase = base
-			bestDistance = distance
-		}
-	}
-	return bestRef, bestBase
-}
-
-func (c *ExecGitClient) mergeBase(ref string) string {
-	if _, err := c.runGitCommand("rev-parse", "--verify", ref); err != nil {
-		return ""
-	}
-	base, err := c.runGitCommand("merge-base", "--fork-point", ref, "HEAD")
-	if err == nil && base != "" {
-		return base
-	}
-	base, err = c.runGitCommand("merge-base", ref, "HEAD")
+	ref, err := c.branchBaseRef(branch)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return base
+	if remote, ok := strings.CutPrefix(ref, "refs/remotes/"); ok {
+		_, name, _ := strings.Cut(remote, "/")
+		return name, nil
+	}
+	return strings.TrimPrefix(ref, "refs/heads/"), nil
+}
+
+func (c *ExecGitClient) branchBaseRef(branch string) (string, error) {
+	parent := c.branchCreationParent(branch)
+	if parent != "" && parent != branch && parent != "origin/"+branch {
+		for _, ref := range []string{"refs/heads/" + parent, "refs/remotes/" + parent, "refs/remotes/origin/" + parent} {
+			if _, err := c.runGitCommand("show-ref", "--verify", ref); err == nil {
+				return ref, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("cannot determine the creation parent of %q; use yawn squash --base REF", branch)
 }
 
 func (c *ExecGitClient) branchCreationParent(branch string) string {
@@ -102,35 +74,6 @@ func (c *ExecGitClient) branchCreationParent(branch string) string {
 	return ""
 }
 
-func (c *ExecGitClient) branchBaseCandidateRefs(branch string) []string {
-	refs := []string{"origin/HEAD"}
-	if defaultBranch, err := c.GetDefaultBranch(); err == nil && defaultBranch != "" {
-		refs = append(refs, "origin/"+defaultBranch, defaultBranch)
-	}
-	for _, name := range []string{"main", "master", "dev"} {
-		if name != branch {
-			refs = append(refs, "origin/"+name, name)
-		}
-	}
-	head, _ := c.GetLastCommitHash()
-	parent := c.branchCreationParent(branch)
-	if output, err := c.runGitCommand("for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin", "refs/heads"); err == nil {
-		for _, line := range strings.Split(output, "\n") {
-			ref, tip, ok := strings.Cut(line, " ")
-			if !ok || ref == "origin/HEAD" || ref == branch || ref == "origin/"+branch || tip == head {
-				continue
-			}
-			if ref == parent || ref == "origin/"+parent {
-				refs = append(refs, ref)
-			} else if _, err := c.runGitCommand("merge-base", "--is-ancestor", ref, "HEAD"); err == nil {
-				refs = append(refs, ref)
-			}
-		}
-	}
-
-	return refs
-}
-
 func (c *ExecGitClient) GetCommitCountRange(base string) (int, error) {
 	output, err := c.runGitCommand("rev-list", "--count", base+"..HEAD")
 	if err != nil {
@@ -148,7 +91,7 @@ func (c *ExecGitClient) GetDiffRange(base string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff stats: %w", err)
 	}
-	return c.buildFilteredDiff(numstatOutput, []string{"diff", "--no-color", base, "HEAD"}), nil
+	return c.buildFilteredDiff(numstatOutput, []string{"diff", "--no-color", base, "HEAD"}, base)
 }
 
 func (c *ExecGitClient) GetDiffCachedRange(base string) (string, error) {
@@ -156,16 +99,7 @@ func (c *ExecGitClient) GetDiffCachedRange(base string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff stats: %w", err)
 	}
-	return c.buildFilteredDiff(numstatOutput, []string{"diff", "--cached", "--no-color", base}), nil
-}
-
-func (c *ExecGitClient) GetDiffNumStatRange(base string) (int, int, error) {
-	output, err := c.runGitCommand("diff", "--numstat", "-z", "--no-renames", "--no-color", base, "HEAD")
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get diff stats: %w", err)
-	}
-	add, del := sumNumstatLines(output)
-	return add, del, nil
+	return c.buildFilteredDiff(numstatOutput, []string{"diff", "--cached", "--no-color", base}, base)
 }
 
 func (c *ExecGitClient) GetDiffNumStatCachedRange(base string) (int, int, error) {

@@ -18,7 +18,28 @@ func TestExecGitClient_GetDefaultBranchFallsBackToOriginMaster(t *testing.T) {
 
 	client := &ExecGitClient{RepoPath: repo}
 
-	branch, err := client.GetDefaultBranch()
+	branch, err := client.GetDefaultBranch("")
+
+	require.NoError(t, err)
+	assert.Equal(t, "master", branch)
+}
+
+func TestExecGitClient_GetDefaultBranchPreservesSlashes(t *testing.T) {
+	repo := newTestRepo(t)
+	runTestGit(t, repo, "update-ref", "refs/remotes/origin/release/stable", "HEAD")
+	runTestGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/release/stable")
+
+	branch, err := (&ExecGitClient{RepoPath: repo}).GetDefaultBranch("")
+
+	require.NoError(t, err)
+	assert.Equal(t, "release/stable", branch)
+}
+
+func TestExecGitClient_GetDefaultBranchWithoutRemoteHEAD(t *testing.T) {
+	repo := newTestRepo(t)
+	runTestGit(t, repo, "branch", "feature")
+
+	branch, err := (&ExecGitClient{RepoPath: repo}).GetDefaultBranch("")
 
 	require.NoError(t, err)
 	assert.Equal(t, "master", branch)
@@ -35,7 +56,7 @@ func TestExecGitClient_FindBranchBaseUsesOriginMasterMergeBase(t *testing.T) {
 
 	client := &ExecGitClient{RepoPath: repo}
 
-	got, err := client.FindBranchBase("opencode")
+	got, err := client.FindBranchBase("opencode", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, base, got)
@@ -86,7 +107,7 @@ func TestExecGitClient_FindBranchBasePreservesAdvancedParent(t *testing.T) {
 			runTestGit(t, repo, "checkout", "feature")
 			client := &ExecGitClient{RepoPath: repo}
 
-			got, err := client.FindBranchBase("feature")
+			got, err := client.FindBranchBase("feature", "")
 			require.NoError(t, err)
 			assert.Equal(t, base, got)
 			ref, err := client.FindBranchBaseRef("feature")
@@ -151,6 +172,95 @@ func TestExecGitClient_GetDiffUsesLiteralPathspecs(t *testing.T) {
 	check(client.GetDiffRange(base))
 }
 
+func TestExecGitClient_DiffErrorsAreNotContent(t *testing.T) {
+	client := &ExecGitClient{RepoPath: t.TempDir()}
+	diff, err := client.GetDiff()
+	require.Error(t, err)
+	assert.Empty(t, diff)
+}
+
+func TestExecGitClient_GetDiffUsesStagedRedactionRules(t *testing.T) {
+	repo := newTestRepo(t)
+	writeTestFile(t, repo, ".gitattributes", "private.txt yawn=skip\n")
+	writeTestFile(t, repo, "private.txt", "synthetic private content\n")
+	runTestGit(t, repo, "add", ".")
+	// An unstaged edit must not remove the index's redaction rule.
+	writeTestFile(t, repo, ".gitattributes", "")
+	client := &ExecGitClient{RepoPath: repo}
+
+	diff, err := client.GetDiff()
+
+	require.NoError(t, err)
+	assert.Contains(t, diff, "private.txt: skipped")
+	assert.NotContains(t, diff, "synthetic private content")
+}
+
+func TestExecGitClient_GetDiffUsesHistoricalRedactionRules(t *testing.T) {
+	repo := newTestRepo(t)
+	writeTestFile(t, repo, ".gitattributes", "private.txt yawn=skip\n")
+	writeTestFile(t, repo, "private.txt", "synthetic private content\n")
+	runTestGit(t, repo, "add", ".")
+	runTestGit(t, repo, "commit", "-m", "private file")
+	base := runTestGit(t, repo, "rev-parse", "HEAD")
+	runTestGit(t, repo, "rm", ".gitattributes", "private.txt")
+	client := &ExecGitClient{RepoPath: repo}
+	check := func(diff string, err error) {
+		t.Helper()
+		require.NoError(t, err)
+		assert.Contains(t, diff, "private.txt: skipped")
+		assert.NotContains(t, diff, "synthetic private content")
+	}
+	check(client.GetDiff())
+	check(client.GetDiffCachedRange(base))
+	runTestGit(t, repo, "commit", "-m", "delete private file")
+	check(client.GetDiffRange(base))
+}
+
+func TestExecGitClient_RedactedFileBecomingDirectory(t *testing.T) {
+	repo := newTestRepo(t)
+	writeTestFile(t, repo, ".gitattributes", "data yawn=skip\n")
+	writeTestFile(t, repo, "data", "synthetic private file\n")
+	runTestGit(t, repo, "add", ".")
+	runTestGit(t, repo, "commit", "-m", "private file")
+	runTestGit(t, repo, "rm", "data")
+	require.NoError(t, os.Mkdir(filepath.Join(repo, "data"), 0o755))
+	writeTestFile(t, repo, "data/child.txt", "content inside private boundary\n")
+	runTestGit(t, repo, "add", ".")
+	diff, err := (&ExecGitClient{RepoPath: repo}).GetDiff()
+	require.NoError(t, err)
+	assert.Contains(t, diff, "data/child.txt: skipped")
+	assert.NotContains(t, diff, "synthetic private file")
+	assert.NotContains(t, diff, "content inside private boundary")
+}
+
+func TestExecGitClient_GetDiffRedactsLeadingWhitespacePaths(t *testing.T) {
+	repo := newTestRepo(t)
+	writeTestFile(t, repo, ".gitattributes", "*.txt filter=git-crypt\n!ignored yawn=skip\n")
+	writeTestFile(t, repo, " private.txt", "synthetic private content\n")
+	runTestGit(t, repo, "add", ".")
+
+	diff, err := (&ExecGitClient{RepoPath: repo}).GetDiff()
+
+	require.NoError(t, err)
+	assert.Contains(t, diff, " private.txt: git-crypt")
+	assert.NotContains(t, diff, "synthetic private content")
+}
+
+func TestExecGitClient_GetDiffDoesNotRunTextconv(t *testing.T) {
+	repo := newTestRepo(t)
+	writeTestFile(t, repo, ".gitattributes", "public.txt diff=custom\n")
+	writeTestFile(t, repo, "public.txt", "public\n")
+	runTestGit(t, repo, "config", "diff.custom.textconv", "echo synthetic-private-content")
+	runTestGit(t, repo, "add", ".")
+	client := &ExecGitClient{RepoPath: repo}
+
+	diff, err := client.GetDiff()
+
+	require.NoError(t, err)
+	assert.Contains(t, diff, "+public")
+	assert.NotContains(t, diff, "synthetic-private-content")
+}
+
 func TestExecGitClient_GetDiffRedactsDirectoryTransitions(t *testing.T) {
 	for _, reverse := range []bool{false, true} {
 		name := "file-to-directory"
@@ -198,7 +308,7 @@ func TestExecGitClient_GetDiffRedactsDirectoryTransitions(t *testing.T) {
 }
 
 func TestExecGitClient_FindBranchBaseIgnoresNonAncestorBranches(t *testing.T) {
-	for _, kind := range []string{"backup", "descendant", "sibling"} {
+	for _, kind := range []string{"backup", "descendant", "sibling", "ancestor"} {
 		t.Run(kind, func(t *testing.T) {
 			repo := newTestRepo(t)
 			base := runTestGit(t, repo, "rev-parse", "HEAD")
@@ -209,11 +319,11 @@ func TestExecGitClient_FindBranchBaseIgnoresNonAncestorBranches(t *testing.T) {
 				runTestGit(t, repo, "commit", "-m", name)
 			}
 			start := "HEAD"
-			if kind == "sibling" {
+			if kind == "sibling" || kind == "ancestor" {
 				start = "HEAD~1"
 			}
 			runTestGit(t, repo, "checkout", "-b", "other", start)
-			if kind != "backup" {
+			if kind != "backup" && kind != "ancestor" {
 				writeTestFile(t, repo, "other.txt", "other\n")
 				runTestGit(t, repo, "add", "other.txt")
 				runTestGit(t, repo, "commit", "-m", "other")
@@ -221,7 +331,7 @@ func TestExecGitClient_FindBranchBaseIgnoresNonAncestorBranches(t *testing.T) {
 			runTestGit(t, repo, "checkout", "feature")
 			client := &ExecGitClient{RepoPath: repo}
 
-			got, err := client.FindBranchBase("feature")
+			got, err := client.FindBranchBase("feature", "")
 			require.NoError(t, err)
 			assert.Equal(t, base, got)
 			ref, err := client.FindBranchBaseRef("feature")
@@ -229,6 +339,20 @@ func TestExecGitClient_FindBranchBaseIgnoresNonAncestorBranches(t *testing.T) {
 			assert.Equal(t, "master", ref)
 		})
 	}
+}
+
+func TestExecGitClient_ExplicitBaseWithoutCreationReflog(t *testing.T) {
+	repo := newTestRepo(t)
+	base := runTestGit(t, repo, "rev-parse", "HEAD")
+	runTestGit(t, repo, "checkout", "-b", "feature")
+	runTestGit(t, repo, "commit", "--allow-empty", "-m", "feature")
+	runTestGit(t, repo, "reflog", "expire", "--expire=now", "--all")
+	client := &ExecGitClient{RepoPath: repo}
+	_, err := client.FindBranchBase("feature", "")
+	require.ErrorContains(t, err, "--base")
+	got, err := client.FindBranchBase("feature", "master")
+	require.NoError(t, err)
+	assert.Equal(t, base, got)
 }
 
 func TestExecGitClient_StashRestoresOnlyItsOwnWork(t *testing.T) {

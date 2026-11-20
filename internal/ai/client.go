@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/Mayurifag/yawn/internal/config"
 )
@@ -35,9 +36,9 @@ func (e statusError) Error() string {
 	return fmt.Sprintf("provider returned HTTP %d: %s", e.StatusCode, body)
 }
 
-func NewClient(cfg config.Config) (Client, error) {
+func NewClient(cfg config.Config, onFallback func(error)) (Client, error) {
 	mainProvider := cfg.GetMainProvider()
-	mainClient, err := newProviderClient(mainProvider, cfg.GetProviderConfig(mainProvider))
+	mainClient, err := newProviderClient(mainProvider, cfg.GetProviderConfig(mainProvider), cfg.GetRequestTimeout())
 	if err != nil {
 		return nil, err
 	}
@@ -48,25 +49,28 @@ func NewClient(cfg config.Config) (Client, error) {
 	}
 	fallbackCfg := cfg.GetProviderConfig(fallbackProvider)
 	return &fallbackClient{
-		primary: mainClient,
+		primary:    mainClient,
+		onFallback: onFallback,
 		fallback: func() (Client, error) {
-			return newProviderClient(fallbackProvider, fallbackCfg)
+			return newProviderClient(fallbackProvider, fallbackCfg, cfg.GetRequestTimeout())
 		},
 	}, nil
 }
 
-func newProviderClient(provider string, providerCfg config.ProviderConfig) (Client, error) {
+func newProviderClient(provider string, providerCfg config.ProviderConfig, timeout time.Duration) (Client, error) {
 	if config.ProviderRequiresAPIKey(provider) && providerCfg.APIKey == "" {
 		return nil, fmt.Errorf("API key is required for provider %q", provider)
 	}
+	var client Client
 	switch provider {
 	case config.ProviderGemini:
-		return newGeminiClient(providerCfg.APIKey, providerCfg.Model), nil
+		client = newGeminiClient(providerCfg.APIKey, providerCfg.Model)
 	case config.ProviderOpenCodeCLI:
-		return newOpenCodeCLIClient(providerCfg.Model), nil
+		client = newOpenCodeCLIClient(providerCfg.Model)
 	default:
 		return nil, fmt.Errorf("unsupported provider %q", provider)
 	}
+	return &timeoutClient{client: client, timeout: timeout}, nil
 }
 
 func IsTransientError(err error) bool {
