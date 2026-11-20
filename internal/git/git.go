@@ -35,6 +35,7 @@ type GitClient interface {
 	ResolvePushTarget(command string) (PushTarget, error)
 	PreparePush(command string) (*PushPlan, error)
 	Push(plan *PushPlan, force bool) (string, error)
+	IsAncestor(ancestor, descendant string) (bool, error)
 	HasRemotes() (bool, error)
 	GetCurrentBranch() (string, error)
 	SetRemoteURL(remote, newURL string) error

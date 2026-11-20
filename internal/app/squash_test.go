@@ -40,6 +40,51 @@ func TestRunSquashPreservesTree(t *testing.T) {
 	assert.Empty(t, squashTestGit(t, a, "status", "--porcelain"))
 }
 
+func TestRunSquashAutoPushRequiresIntegratedRemoteTip(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		remoteOnly bool
+		fetch      bool
+	}{
+		{name: "already integrated"},
+		{name: "unseen remote commit", remoteOnly: true},
+		{name: "fetched but not integrated", remoteOnly: true, fetch: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, original := newSquashTestApp(t)
+			fakeSquashOpenCode(t)
+			a.Config.PushCommand = config.DefaultPushCommand
+			a.Config.SquashAutoPush = true
+
+			remote := t.TempDir()
+			squashTestGit(t, a, "init", "--bare", "--initial-branch=master", remote)
+			squashTestGit(t, a, "remote", "add", "origin", remote)
+			squashTestGit(t, a, "push", "-u", "origin", "master", "feature")
+			remoteTip := original
+			if tc.remoteOnly {
+				remoteTip = squashTestGit(t, a, "commit-tree", "HEAD^{tree}", "-p", original, "-m", "collaborator commit")
+				squashTestGit(t, a, "push", remote, remoteTip+":refs/heads/feature")
+			}
+			if tc.fetch {
+				squashTestGit(t, a, "fetch", "origin")
+			}
+
+			require.NoError(t, a.RunSquash(context.Background(), ""))
+
+			assert.Equal(t, "1", squashTestGit(t, a, "rev-list", "--count", "master..HEAD"))
+			if !tc.remoteOnly {
+				remoteTip = squashTestGit(t, a, "rev-parse", "HEAD")
+			}
+			assert.Equal(t, remoteTip, squashTestGit(t, a, "--git-dir="+remote, "rev-parse", "refs/heads/feature"))
+			if tc.remoteOnly {
+				a.Config.AutoPush = true
+				require.NoError(t, a.RunForcePush())
+				assert.Equal(t, remoteTip, squashTestGit(t, a, "--git-dir="+remote, "rev-parse", "refs/heads/feature"))
+			}
+		})
+	}
+}
+
 func TestRunSquashCommitFailureRestoresBranch(t *testing.T) {
 	a, original := newSquashTestApp(t)
 	fakeSquashOpenCode(t)

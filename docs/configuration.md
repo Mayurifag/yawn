@@ -41,7 +41,7 @@ configured. Reasoning output is off by default, and no output token limit is set
 | `auto_stage`              | Stage changes without prompting.                                                               |
 | `auto_push`               | Push after committing without prompting; divergent histories still require force-push consent. |
 | `push_command`            | Push command. Default: `git push origin HEAD`.                                                 |
-| `squash_auto_push`        | Force-push automatically after `yawn squash`, without confirmation.                            |
+| `squash_auto_push`        | Push after squash without prompting when safe.                                                 |
 | `wait_for_ssh_keys`       | Wait for `ssh-add -l` before pushing. Useful with KeePassXC or other SSH-agent unlock flows.   |
 
 ## Push commands
@@ -68,6 +68,14 @@ fails, yawn does not push. The source commit and force-push lease stay fixed acr
 be pushed without configuring an upstream first. Pushes use the named remote, preserving its settings and the remote
 name passed to pre-push hooks. A changed push URL requires a new preview. PR lookup only returns open PRs from the push
 repository. For a renamed destination branch, PR links use the local branch's parent as the base.
+
+With `squash_auto_push`:
+
+- Yawn can replace the commits it just squashed without asking.
+- It asks before overwriting commits outside the pre-squash branch history.
+- Fetching those commits does not make them safe to overwrite.
+
+`yawn force-push` always asks before overwriting destination-only commits.
 
 ## CLI Flags
 

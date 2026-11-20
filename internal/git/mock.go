@@ -11,6 +11,7 @@ type MockGitClient struct {
 	MockResolvePushTarget         func(command string) (PushTarget, error)
 	MockPreparePush               func(command string) (*PushPlan, error)
 	MockPush                      func(plan *PushPlan, force bool) (string, error)
+	MockIsAncestor                func(ancestor, descendant string) (bool, error)
 	MockHasRemotes                func() (bool, error)
 	MockGetCurrentBranch          func() (string, error)
 	MockSetRemoteURL              func(remote, newURL string) error
@@ -99,6 +100,13 @@ func (m *MockGitClient) Push(plan *PushPlan, force bool) (string, error) {
 		return m.MockPush(plan, force)
 	}
 	return "", nil
+}
+
+func (m *MockGitClient) IsAncestor(ancestor, descendant string) (bool, error) {
+	if m.MockIsAncestor != nil {
+		return m.MockIsAncestor(ancestor, descendant)
+	}
+	return false, nil
 }
 
 func (m *MockGitClient) HasRemotes() (bool, error) {

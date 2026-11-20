@@ -119,7 +119,7 @@ func (a *App) pushChanges(force, auto bool) error {
 	if err != nil || plan == nil {
 		return err
 	}
-	return a.confirmAndPush(plan, force, auto)
+	return a.confirmAndPush(plan, force, auto && len(plan.RemoteCommits) == 0)
 }
 
 func (a *App) handlePushOperation() error {
@@ -159,6 +159,17 @@ func (a *App) confirmAndPush(plan *git.PushPlan, force, auto bool) error {
 	return a.doPush(plan, needsForce)
 }
 
-func (a *App) handleSquashPush() error {
-	return a.pushChanges(true, a.Config.SquashAutoPush)
+func (a *App) handleSquashPush(original string) error {
+	plan, err := a.preparePush()
+	if err != nil || plan == nil {
+		return err
+	}
+	auto := a.Config.SquashAutoPush
+	if auto && len(plan.RemoteCommits) > 0 {
+		auto, err = a.GitClient.IsAncestor(plan.RemoteHead, original)
+		if err != nil {
+			return fmt.Errorf("cannot verify the destination against pre-squash history: %w", err)
+		}
+	}
+	return a.confirmAndPush(plan, true, auto)
 }

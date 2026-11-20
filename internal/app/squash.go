@@ -97,10 +97,14 @@ func (a *App) handleSingleCommit(ctx context.Context, base string) error {
 	if err != nil {
 		return err
 	}
+	original, err := a.GitClient.GetLastCommitHash()
+	if err != nil {
+		return err
+	}
 	if err := a.GitClient.AmendCommit(message); err != nil {
 		return err
 	}
-	return a.handleSquashPush()
+	return a.handleSquashPush(original)
 }
 
 func (a *App) generateSquashMessage(ctx context.Context, base string) (string, error) {
@@ -182,7 +186,7 @@ func (a *App) handleMultiCommitSquash(ctx context.Context, base string, count in
 	}
 	ui.PrintSuccess("Successfully committed changes.")
 
-	return a.handleSquashPush()
+	return a.handleSquashPush(original)
 }
 
 func (a *App) RunSquash(ctx context.Context, baseRef string) error {

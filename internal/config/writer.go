@@ -42,7 +42,7 @@ func GenerateConfigContent() []byte {
 	fmt.Fprintf(&buf, "# auto_push = %v\n", DefaultAutoPush)
 	fmt.Fprintf(&buf, "# push_command = %q\n", DefaultPushCommand)
 	fmt.Fprintf(&buf, "# wait_for_ssh_keys = %v\n", DefaultWaitForSSHKeys)
-	fmt.Fprintf(&buf, "# squash_auto_push = %v # Allow force-push after squash without confirmation\n", DefaultSquashAutoPush)
+	fmt.Fprintf(&buf, "# squash_auto_push = %v # Ask before overwriting commits outside the pre-squash history\n", DefaultSquashAutoPush)
 	buf.WriteString("\n")
 
 	buf.WriteString("# prompt = '''\n")

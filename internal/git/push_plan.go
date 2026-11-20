@@ -176,6 +176,15 @@ func (c *ExecGitClient) PreparePush(command string) (*PushPlan, error) {
 	return plan, err
 }
 
+func (c *ExecGitClient) IsAncestor(ancestor, descendant string) (bool, error) {
+	_, err := c.runGitCommand("merge-base", "--is-ancestor", ancestor, descendant)
+	var gitErr *GitError
+	if errors.As(err, &gitErr) && gitErr.ExitCode == 1 {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func (c *ExecGitClient) Push(plan *PushPlan, force bool) (string, error) {
 	currentURL, err := c.pushURL(plan.Target.Remote)
 	if err != nil {
